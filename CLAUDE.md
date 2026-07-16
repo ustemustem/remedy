@@ -56,6 +56,23 @@ canvas. `CanvasScreen` is remounted with `key={sessionId}` when switching sessio
 `initialGraph` prop is only consulted once (by `useState`) — without the key, switching sessions
 while already on the canvas would silently keep the old session's in-memory state.
 
+### Session sidebar + search overlay
+
+`components/session-sidebar.tsx` renders as a persistent left rail across all three steps
+(mounted once in `page.tsx`, outside the `step` switch) — collapsible via a single animated
+`width` transition on one wrapping div, not a conditional swap between two JSX trees (that was
+tried first and produced an instant, unanimated jump). Clicking a past session calls
+`onSelect`, which restores that session's `graph`/`step` into `page.tsx` state.
+
+The sidebar's search icon opens `components/session-search-overlay.tsx`, built on the
+already-installed shadcn `Command`/`CommandDialog` (cmdk) components — filters sessions by
+Date (Today/This week/This month/All) and Context (`Industry`), plus free-text search via
+cmdk's own built-in filtering. **Gotcha:** in this project's installed version of
+`components/ui/command.tsx`, `CommandDialog` does *not* wrap its children in a `<Command>` root
+— you must wrap `CommandInput`/`CommandList` in an explicit `<Command>` yourself inside the
+dialog, or cmdk's internal store context is `undefined` and it throws
+`Cannot read properties of undefined (reading 'subscribe')` at render time.
+
 ### Mock AI is the seam for a real backend
 
 Every "AI" behavior lives in `lib/mockAI.ts` behind a 500–1500ms artificial delay. Three
@@ -71,9 +88,17 @@ functions are the integration points for a real LLM later:
   `getInitialCanvas`'s pairs, one level deeper) rather than a single dead-end node.
 
 `lib/thoughtTriggers.ts`, `lib/headlinePrompts.ts`, and `lib/examplePrompts.ts` are smaller,
-separate mock-content modules for the chat entry screen (keyword-matched trigger chips, a
-rotating headline carousel, and static example-scenario cards) — not part of the `mockAI.ts`
-seam, since they don't produce canvas nodes.
+separate mock-content modules for the chat entry screen — not part of the `mockAI.ts` seam,
+since they don't produce canvas nodes:
+
+- `thoughtTriggers.ts` — keyword-matched chips that appear after a typing pause.
+- `headlinePrompts.ts` — the rotating "What's going on?"-style headline carousel.
+- `examplePrompts.ts` — `EXAMPLE_PROMPTS_BY_INDUSTRY`, grouped by `Industry`
+  (`"general" | "hr" | "it"`); the chat entry screen's industry chips switch which group of 3
+  example cards is shown. `lib/sessions.ts`'s `inferIndustry()` reuses the same `Industry` type
+  to keyword-tag each saved session (for the search overlay's Context filter) — that tagging is
+  independent of whichever chip the user had active when they actually submitted, since it's
+  inferred from the submitted text itself, not the UI selection.
 
 ### The canvas graph is append-only; visibility is derived, not stored
 

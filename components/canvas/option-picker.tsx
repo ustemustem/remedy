@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2 } from "lucide-react";
+import { ArrowRight, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { TypewriterText } from "./typewriter-text";
@@ -66,7 +66,10 @@ export function OptionPicker({
           {disabled && pickedId ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
           ) : (
-            "Select and continue"
+            <>
+              Select and continue
+              <ArrowRight className="h-3.5 w-3.5" />
+            </>
           )}
         </Button>
       </div>

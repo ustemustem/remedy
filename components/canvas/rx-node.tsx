@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Loader2,
   Check,
+  GripVertical,
   MessageSquarePlus,
   ThumbsUp,
   ThumbsDown,
@@ -145,6 +146,14 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
           <ThumbsDown className="h-3.5 w-3.5" />
         </button>
       </div>
+
+      {/* Purely a "this card is grabbable" affordance — the whole card is
+          already draggable by default, this icon doesn't need to handle
+          events. Sits just outside the card's right edge, only while
+          hovering the card itself (not the path). */}
+      <GripVertical
+        className="pointer-events-none absolute top-1/2 -right-5 h-4 w-4 -translate-y-1/2 text-muted-foreground opacity-0 transition-opacity group-hover/node:opacity-100"
+      />
 
       <Card
         onClick={handleCardClick}

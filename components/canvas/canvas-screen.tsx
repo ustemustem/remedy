@@ -14,19 +14,26 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import { RotateCcw, Send } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { RxNode, type RxNodeData } from "./rx-node";
-import { RxEdge } from "./rx-edge";
+import { RxEdge, type ConnectorVariant, type RxEdgeData } from "./rx-edge";
 import { GroupFrameNode, type FrameVariant, type GroupFrameNodeData } from "./group-frame-node";
+import { ExperimentOverlay, type MinimapVariant } from "./experiment-overlay";
+import { ThemePanel } from "./theme-panel";
 import { layoutNodes } from "@/lib/layout";
-import { getNodeResponse, getOptionResponse, MAX_BRANCH_DEPTH } from "@/lib/mockAI";
+import {
+  getNodeResponse,
+  getOptionResponse,
+  getPreferredContinuation,
+  MAX_BRANCH_DEPTH,
+} from "@/lib/mockAI";
 import {
   getSupersededIds,
   resolveVisibleParentId,
   deriveFeedbackContext,
+  deriveThemeEntries,
 } from "@/lib/graph";
 import type { CanvasGraph, CanvasNodeData } from "@/lib/types";
 
@@ -35,7 +42,7 @@ const edgeTypes = { rxEdge: RxEdge };
 
 // PROTOTYPE ONLY — branch-framing hover comparison. Remove alongside
 // group-frame-node.tsx and the groupId/groupLabel fields once a variant wins.
-const FRAME_PADDING_X = 28;
+const FRAME_PADDING_X = 16;
 const FRAME_PADDING_Y = 36;
 // Fallback size for a card that hasn't been measured in the DOM yet (first paint).
 const CARD_WIDTH_FALLBACK = 320;
@@ -136,6 +143,45 @@ function computeGroupFrames(
   }));
 }
 
+/**
+ * A newly-graduated path (or any path whose chain has grown deep) can end
+ * up structurally positioned where an older, already-placed path's frame
+ * already sits. Rather than letting them overlap — or pushing the older
+ * frame out of the way — only the newer one nudges sideways just far enough
+ * to clear the collision, and stops as soon as there's room; it never moves
+ * anything else. `frames` must be in creation order (older paths first) so
+ * earlier frames act as fixed obstacles for later ones.
+ */
+function resolveFrameOverlaps(frames: Node<GroupFrameNodeData>[]): Record<string, number> {
+  const shiftByGroupId: Record<string, number> = {};
+  const placed: { x0: number; x1: number; y0: number; y1: number }[] = [];
+
+  for (const f of frames) {
+    const groupId = (f.data as GroupFrameNodeData).groupId;
+    const width = typeof f.style?.width === "number" ? f.style.width : 0;
+    const height = typeof f.style?.height === "number" ? f.style.height : 0;
+    let x0 = f.position.x;
+    let x1 = x0 + width;
+    const y0 = f.position.y;
+    const y1 = y0 + height;
+
+    let shift = 0;
+    for (let guard = 0; guard < 20; guard++) {
+      const blocker = placed.find((p) => x0 < p.x1 && x1 > p.x0 && y0 < p.y1 && y1 > p.y0);
+      if (!blocker) break;
+      const push = blocker.x1 - x0 + FRAME_PADDING_X;
+      shift += push;
+      x0 += push;
+      x1 += push;
+    }
+
+    shiftByGroupId[groupId] = shift;
+    placed.push({ x0, x1, y0, y1 });
+  }
+
+  return shiftByGroupId;
+}
+
 interface Selection {
   nodeId: string;
   text: string;
@@ -184,6 +230,13 @@ export function CanvasScreen({
 
   // PROTOTYPE ONLY — branch-framing hover comparison.
   const [frameVariant, setFrameVariant] = useState<FrameVariant>("onlyOnHover");
+  // PROTOTYPE ONLY — experiment-overlay minimap style comparison.
+  const [minimapVariant, setMinimapVariant] = useState<MinimapVariant>("default");
+  // PROTOTYPE ONLY — experiment-overlay connector shape/dash comparison.
+  const [connectorVariant, setConnectorVariant] = useState<ConnectorVariant>("curved");
+  // Lets the rebuild effect read the latest connector variant without
+  // depending on it directly (see the dedicated patch effect below).
+  const connectorVariantRef = useRef(connectorVariant);
   const [hoveredGroupId, setHoveredGroupId] = useState<string | null>(null);
   const [measuredSizes, setMeasuredSizes] = useState<
     Record<string, { width: number; height: number }>
@@ -209,11 +262,12 @@ export function CanvasScreen({
 
   const [rfNodes, setRfNodes, onNodesChange] =
     useNodesState<RxNodeData | GroupFrameNodeData>([]);
-  const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<RxEdgeData>([]);
 
   // Liked/disliked themes, independent of "Select" — steers the mock AI's
   // next outputs and surfaces in the header strip below.
   const feedbackContext = useMemo(() => deriveFeedbackContext(graph.nodes), [graph.nodes]);
+  const themeEntries = useMemo(() => deriveThemeEntries(graph.nodes), [graph.nodes]);
 
   const handleSelectToggle = useCallback((nodeId: string) => {
     setGraph((g) => ({
@@ -251,11 +305,12 @@ export function CanvasScreen({
     [graph, feedbackContext]
   );
 
-  // Shared by the comment popover AND the "Prefer this option" card
-  // action — both are just "comment on this node," one with typed text, the
-  // other with an implicit preference.
+  // Typed comment from the popover — refines the SAME card in place (a
+  // revision, collapsed behind the card that replaces it). "Prefer this
+  // option" is a different action (handlePreferOption, below): committing
+  // to a direction and continuing, not rewording this one card.
   const submitCommentFor = useCallback(
-    async (nodeId: string, commentText: string, forceSelected?: boolean) => {
+    async (nodeId: string, commentText: string) => {
       const node = graph.nodes.find((n) => n.id === nodeId);
       if (!node) return;
       setPendingNodeIds((prev) => new Set(prev).add(nodeId));
@@ -264,21 +319,7 @@ export function CanvasScreen({
         commentText,
         feedbackContext
       );
-      // Every comment refines the same recommendation — carry the "Select"
-      // mark forward so the dashboard always reflects the latest revision's
-      // data, not whatever version happened to be selected first. A forced
-      // value wins — "Prefer this option" always accepts the new revision,
-      // even if the card wasn't explicitly selected beforehand.
-      const carried: CanvasNodeData = { ...newNode, selected: forceSelected ?? node.selected };
-      // Finalizing ("Prefer this option") a node that only exists because of
-      // an option-set pick is the moment it stops being exploratory — it
-      // graduates out of its parent's path into a new one of its own, rather
-      // than staying folded into the frame it was drafted under.
-      if (forceSelected && node.fromOptionPick) {
-        carried.groupId = `group-${Math.random().toString(36).slice(2, 9)}`;
-        carried.groupLabel = node.optionChoiceLabel ?? "New path";
-        carried.fromOptionPick = false;
-      }
+      const carried: CanvasNodeData = { ...newNode, selected: node.selected };
       setGraph((g) => ({ nodes: [...g.nodes, carried], edges: [...g.edges, newEdge] }));
       setPendingNodeIds((prev) => {
         const next = new Set(prev);
@@ -299,14 +340,34 @@ export function CanvasScreen({
     submitCommentFor(nodeId, commentText);
   }, [selection, commentDraft, submitCommentFor]);
 
-  // Accept-and-continue: always marks the resulting revision "Select",
-  // whether or not the card was explicitly selected first — no separate
-  // "click the card, then click this" step required.
+  // Accept-and-continue: appends a brand new child node one depth below the
+  // preferred card — the preferred card itself stays fully visible (never
+  // hidden the way a revision hides the node it replaces). It stays in the
+  // same path as the card it continues — a suggestion chain is one path no
+  // matter how many times it's picked, revised, or preferred; only a
+  // counter-argument ever starts its own separate path (see mockAI.ts).
+  // "Prefer this option" is about which DIRECTION to explore next, not a
+  // dashboard commitment — the new continuation is never auto-selected, so
+  // the user is free to prefer several branches in parallel and pick which
+  // one to actually finalize later, as its own separate action.
   const handlePreferOption = useCallback(
-    (nodeId: string) => {
-      submitCommentFor(nodeId, "I prefer this — please continue in this direction.", true);
+    async (nodeId: string) => {
+      const node = graph.nodes.find((n) => n.id === nodeId);
+      if (!node) return;
+      setPendingNodeIds((prev) => new Set(prev).add(nodeId));
+      const { node: newNode, edge: newEdge } = await getPreferredContinuation(
+        node,
+        feedbackContext
+      );
+      const carried: CanvasNodeData = { ...newNode, selected: false };
+      setGraph((g) => ({ nodes: [...g.nodes, carried], edges: [...g.edges, newEdge] }));
+      setPendingNodeIds((prev) => {
+        const next = new Set(prev);
+        next.delete(nodeId);
+        return next;
+      });
     },
-    [submitCommentFor]
+    [graph, feedbackContext]
   );
 
   const handleMouseUp = useCallback(() => {
@@ -377,13 +438,14 @@ export function CanvasScreen({
     // offsets and real measurements applied.
     const groupFrameNodes = computeGroupFrames(visibleNodes, rawPositions, {});
 
-    const nextEdges: Edge[] = visibleNodes
+    const nextEdges: Edge<RxEdgeData>[] = visibleNodes
       .filter((n) => n.parentId)
       .map((n) => ({
         id: `e-${n.parentId}-${n.id}`,
         source: n.parentId as string,
         target: n.id,
         type: "rxEdge",
+        data: { variant: connectorVariantRef.current },
       }));
 
     setRfNodes([...groupFrameNodes, ...nextNodes]);
@@ -399,6 +461,21 @@ export function CanvasScreen({
     setRfNodes,
     setRfEdges,
   ]);
+
+  // Switching connector style in the experiments overlay patches every
+  // edge's data.variant in place — kept out of the rebuild effect above
+  // (which recreates every node/edge object and would retrigger cards'
+  // mount-in animation) since only the edges' own render needs to change.
+  useEffect(() => {
+    connectorVariantRef.current = connectorVariant;
+    setRfEdges((edges) =>
+      edges.map((e) =>
+        e.data?.variant === connectorVariant
+          ? e
+          : { ...e, data: { ...e.data, variant: connectorVariant } }
+      )
+    );
+  }, [connectorVariant, setRfEdges]);
 
   // Measures each card's actual rendered box continuously — not just once
   // after mount — so a group frame keeps growing while a card's content is
@@ -442,12 +519,26 @@ export function CanvasScreen({
   useEffect(() => {
     const { visibleNodes } = resolveVisibleGraph(graph);
     const rawPositions = layoutNodes(visibleNodes);
+
+    // A newly-graduated (or deeply-grown) path can structurally land where
+    // an older path's frame already sits — nudge only the newer one sideways
+    // to clear it (see resolveFrameOverlaps), computed from the PURE
+    // structural layout so it's independent of anyone's manual drag.
+    const structuralFrames = computeGroupFrames(visibleNodes, rawPositions, measuredSizes);
+    const avoidanceShifts = resolveFrameOverlaps(structuralFrames);
+    const autoPositions: Record<string, { x: number; y: number }> = {};
+    for (const n of visibleNodes) {
+      const raw = rawPositions[n.id] ?? { x: 0, y: 0 };
+      const shift = n.groupId ? avoidanceShifts[n.groupId] ?? 0 : 0;
+      autoPositions[n.id] = { x: raw.x + shift, y: raw.y };
+    }
+
     const adjustedPositions: Record<string, { x: number; y: number }> = {};
     for (const n of visibleNodes) {
       adjustedPositions[n.id] = applyOffsets(
         n.id,
         n.groupId,
-        rawPositions[n.id] ?? { x: 0, y: 0 },
+        autoPositions[n.id],
         groupOffsets,
         nodeOffsets
       );
@@ -456,33 +547,63 @@ export function CanvasScreen({
     const groupFrames = computeGroupFrames(visibleNodes, adjustedPositions, measuredSizes);
     const framesById = new Map(groupFrames.map((f) => [f.id, f]));
 
-    const rawFrames = computeGroupFrames(visibleNodes, rawPositions, measuredSizes);
-    const rawFramePositions: Record<string, { x: number; y: number }> = {};
-    for (const f of rawFrames) {
-      rawFramePositions[(f.data as GroupFrameNodeData).groupId] = f.position;
+    // Drag-delta math anchors off the auto (avoidance-corrected) position,
+    // not the raw structural one — otherwise starting a drag on a path that
+    // got auto-nudged would jump by the avoidance amount on the first move.
+    const autoFrames = computeGroupFrames(visibleNodes, autoPositions, measuredSizes);
+    const autoFramePositions: Record<string, { x: number; y: number }> = {};
+    for (const f of autoFrames) {
+      autoFramePositions[(f.data as GroupFrameNodeData).groupId] = f.position;
     }
-    basePositionsRef.current = { nodes: rawPositions, frames: rawFramePositions };
+    basePositionsRef.current = { nodes: autoPositions, frames: autoFramePositions };
 
-    setRfNodes((nodes) =>
-      nodes.map((n) => {
+    // React Flow measures each node's real DOM size via its own internal
+    // ResizeObserver, but re-derives that measurement from scratch every
+    // time the controlled `nodes` prop gets a new array/object reference
+    // (see @reactflow/core's createNodeInternals, which spreads the incoming
+    // node over the old internal one WITHOUT carrying width/height forward)
+    // — so passing a fresh object even when nothing actually moved keeps
+    // wiping node.width/height before the minimap (or anything else reading
+    // measured size) ever sees a settled value. Bail out to the exact same
+    // reference, at both the node and array level, whenever there's truly
+    // nothing to patch.
+    setRfNodes((nodes) => {
+      let changed = false;
+      const next = nodes.map((n) => {
         if (n.type === "groupFrame") {
-          const next = framesById.get(n.id);
-          if (!next) return n;
+          const nextFrame = framesById.get(n.id);
+          if (!nextFrame) return n;
+          const currData = n.data as GroupFrameNodeData;
+          const active = n.id === `frame-${hoveredGroupId}`;
+          const sameGeometry =
+            n.position.x === nextFrame.position.x &&
+            n.position.y === nextFrame.position.y &&
+            n.style?.width === nextFrame.style?.width &&
+            n.style?.height === nextFrame.style?.height;
+          const sameData =
+            currData.variant === frameVariant &&
+            currData.active === active &&
+            currData.label === (nextFrame.data as GroupFrameNodeData).label &&
+            currData.onHoverChange === setHoveredGroupId;
+          if (sameGeometry && sameData) return n;
+          changed = true;
           return {
-            ...next,
+            ...nextFrame,
             data: {
-              ...next.data,
+              ...nextFrame.data,
               variant: frameVariant,
-              active: n.id === `frame-${hoveredGroupId}`,
+              active,
               onHoverChange: setHoveredGroupId,
             },
           };
         }
         const pos = adjustedPositions[n.id];
-        if (!pos) return n;
+        if (!pos || (n.position.x === pos.x && n.position.y === pos.y)) return n;
+        changed = true;
         return { ...n, position: pos };
-      })
-    );
+      });
+      return changed ? next : nodes;
+    });
   }, [graph, groupOffsets, nodeOffsets, measuredSizes, frameVariant, hoveredGroupId, setRfNodes]);
 
   // Dragging a group frame moves every card in its path together; dragging a
@@ -520,7 +641,32 @@ export function CanvasScreen({
   );
 
   const proOptions = useMemo(() => ({ hideAttribution: true }), []);
-  const hasFeedback = feedbackContext.liked.length > 0 || feedbackContext.disliked.length > 0;
+
+  // PROTOTYPE ONLY — minimap style comparison. Group-frame nodes are always
+  // excluded from the minimap's own coloring/stroke (they're a big
+  // background rect, not something worth a dot); "path-colored" additionally
+  // tints each card by its path's frame color so the minimap doubles as a
+  // path legend at a glance.
+  const minimapNodeColor = useCallback(
+    (n: Node<RxNodeData | GroupFrameNodeData>) => {
+      if (n.type === "groupFrame") return "transparent";
+      // CSS custom properties (var(--x)) aren't reliably resolved as raw SVG
+      // fill values, so these mirror the actual token hex from globals.css.
+      if (minimapVariant !== "pathColored") return "#94a3b8";
+      const groupId = (n.data as RxNodeData | undefined)?.nodeData?.groupId;
+      if (!groupId) return "#94a3b8";
+      const frame = rfNodes.find(
+        (f) => f.type === "groupFrame" && (f.data as GroupFrameNodeData).groupId === groupId
+      );
+      const color = frame ? (frame.data as GroupFrameNodeData).color : undefined;
+      return color === "cta" ? "#cd5c1f" : "#1f4838";
+    },
+    [minimapVariant, rfNodes]
+  );
+  const minimapNodeStrokeColor = useCallback(
+    (n: Node<RxNodeData | GroupFrameNodeData>) => (n.type === "groupFrame" ? "transparent" : "#d4d8d0"),
+    []
+  );
 
   return (
     <div className="flex h-full flex-col bg-background" onMouseUp={handleMouseUp}>
@@ -528,41 +674,8 @@ export function CanvasScreen({
         <div className="flex flex-wrap items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element -- static local SVG, no optimization needed */}
           <img src="/logo.svg" alt="Remedy" className="h-7 w-auto" />
-          {hasFeedback && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-[10px] text-muted-foreground">Themes that influenced this:</span>
-              {feedbackContext.liked.map((theme) => (
-                <Badge
-                  key={`liked-${theme}`}
-                  variant="outline"
-                  className="border-primary/40 bg-primary/10 text-primary"
-                >
-                  {theme}
-                </Badge>
-              ))}
-              {feedbackContext.disliked.map((theme) => (
-                <Badge
-                  key={`disliked-${theme}`}
-                  variant="outline"
-                  className="border-destructive/40 bg-destructive/10 text-destructive"
-                >
-                  {theme}
-                </Badge>
-              ))}
-            </div>
-          )}
         </div>
         <div className="flex items-center gap-2">
-          {/* PROTOTYPE ONLY — branch-framing hover comparison, remove after decision. */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              setFrameVariant((v) => (v === "onlyOnHover" ? "alwaysFaint" : "onlyOnHover"))
-            }
-          >
-            Frame: {frameVariant === "onlyOnHover" ? "Hover only" : "Always faint"}
-          </Button>
           <Button variant="ghost" size="sm" onClick={onReset}>
             <RotateCcw className="h-3.5 w-3.5" />
             Reset session
@@ -595,9 +708,43 @@ export function CanvasScreen({
           >
             <Background color="var(--border)" gap={24} size={1} />
             <Controls showInteractive={false} />
-            <MiniMap pannable zoomable className="!bg-card" />
+            {minimapVariant === "compactCorner" ? (
+              <MiniMap
+                pannable={false}
+                zoomable={false}
+                nodeColor={minimapNodeColor}
+                nodeStrokeColor={minimapNodeStrokeColor}
+                className="!bg-card opacity-40 transition-opacity hover:!opacity-100"
+                style={{ width: 100, height: 70 }}
+              />
+            ) : (
+              <MiniMap
+                pannable
+                zoomable
+                className="!bg-card"
+                nodeColor={minimapNodeColor}
+                nodeStrokeColor={minimapNodeStrokeColor}
+              />
+            )}
           </ReactFlow>
+
+          <ThemePanel
+            themes={themeEntries}
+            nodes={rfNodes.filter((n) => n.type === "rxNode") as Node<RxNodeData>[]}
+            onToggleFeedback={(nodeIds, type) =>
+              nodeIds.forEach((id) => handleFeedbackToggle(id, type))
+            }
+          />
         </ReactFlowProvider>
+
+        <ExperimentOverlay
+          frameVariant={frameVariant}
+          onFrameVariantChange={setFrameVariant}
+          minimapVariant={minimapVariant}
+          onMinimapVariantChange={setMinimapVariant}
+          connectorVariant={connectorVariant}
+          onConnectorVariantChange={setConnectorVariant}
+        />
 
         {selection && (
           <Popover

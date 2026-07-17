@@ -62,19 +62,16 @@ export interface CanvasNodeData {
   previousVersionId?: string | null;
   /** for revision nodes: v2, v3, ... (source/first-pass nodes are implicitly v1) */
   version?: number;
-  /** groups a branch's rec+counter pair (and everything under it) for the branch-framing prototype */
+  /**
+   * Groups this node into a path for the branch-framing prototype. A
+   * suggestion (recommendation) chain and its counter-argument are always
+   * different paths from the moment each is created — they diverge, so
+   * they never share one — no matter how many revisions, option-picks, or
+   * "Prefer this option" continuations happen along the way.
+   */
   groupId?: string;
   /** display label for the branch-framing prototype's group frame */
   groupLabel?: string;
-  /**
-   * True for a recommendation/counter-argument generated directly from an
-   * option-set pick — still exploratory, so it stays inside the parent's
-   * frame rather than opening a new one. Clears once the user finalizes it
-   * ("Prefer this option"), at which point it graduates into its own path.
-   */
-  fromOptionPick?: boolean;
-  /** the option-set choice label this node was generated from, if any — used to label the new path if/when this node is finalized. */
-  optionChoiceLabel?: string;
   /** dashboard-only fields, present on recommendation/counter-argument/revision nodes */
   matchScore?: number;
   retentionRate?: number;

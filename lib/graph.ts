@@ -45,3 +45,34 @@ function themesForNode(n: CanvasNodeData): string[] {
   }
   return [n.title.replace(/\s\(v\d+\)$/, "").replace(/^Given:\s*/, "")];
 }
+
+/** A theme label paired with the like/dislike it came from and the node(s) that carry it. */
+export interface ThemeEntry {
+  theme: string;
+  type: "like" | "dislike";
+  nodeIds: string[];
+}
+
+/**
+ * Same theme extraction as deriveFeedbackContext, but keeps each theme's
+ * originating node ids around — powers the "Themes that influenced this"
+ * panel's jump-to-card and inline unlike/undislike actions.
+ */
+export function deriveThemeEntries(nodes: CanvasNodeData[]): ThemeEntry[] {
+  const byKey = new Map<string, ThemeEntry>();
+
+  for (const n of nodes) {
+    if (!n.feedback) continue;
+    for (const theme of themesForNode(n)) {
+      const key = `${n.feedback}:${theme}`;
+      const existing = byKey.get(key);
+      if (existing) {
+        existing.nodeIds.push(n.id);
+      } else {
+        byKey.set(key, { theme, type: n.feedback, nodeIds: [n.id] });
+      }
+    }
+  }
+
+  return Array.from(byKey.values());
+}

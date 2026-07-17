@@ -54,8 +54,11 @@ function mockPeerOutcome(cohortSize: number, definition: string): CanvasNodeData
 /**
  * Fake async: build the initial canvas from a one-shot chat entry.
  * Returns the Source node plus the AI's proactive first-pass branch — a
- * single recommendation + counter-argument pair. Starting with just one path
- * (rather than several in parallel) keeps the canvas legible on arrival;
+ * single recommendation + counter-argument pair, drafted together but
+ * placed in two separate paths from the start (a suggestion and its
+ * counter-argument grow in different directions, so they never shared a
+ * path to begin with). Starting with just one pair per kind (rather than
+ * several suggestions in parallel) keeps the canvas legible on arrival;
  * further paths open only as the user's own choices warrant them (see
  * getOptionResponse's finalize-graduates-a-new-path behavior).
  */
@@ -63,7 +66,11 @@ export async function getInitialCanvas(chatText: string): Promise<CanvasGraph> {
   await delay();
 
   const sourceId = id("source");
-  const groupId = id("group");
+  // A suggestion and a counter-argument are different directions from the
+  // start — they don't share a path just because they were drafted
+  // together, since what each grows into downstream naturally diverges.
+  const recGroupId = id("group");
+  const counterGroupId = id("group");
 
   const source: CanvasNodeData = {
     id: sourceId,
@@ -107,8 +114,8 @@ export async function getInitialCanvas(chatText: string): Promise<CanvasGraph> {
     depth: 1,
     selected: false,
     optionSet,
-    groupId,
-    groupLabel: "Path 1",
+    groupId: recGroupId,
+    groupLabel: "Suggestion",
   };
 
   const counter: CanvasNodeData = {
@@ -119,8 +126,8 @@ export async function getInitialCanvas(chatText: string): Promise<CanvasGraph> {
     parentId: sourceId,
     depth: 1,
     selected: false,
-    groupId,
-    groupLabel: "Path 1",
+    groupId: counterGroupId,
+    groupLabel: "Counter-argument",
   };
 
   const nodes = [source, rec, counter];
@@ -183,14 +190,68 @@ export async function getNodeResponse(
     peerOutcome: node.peerOutcome,
     groupId: node.groupId,
     groupLabel: node.groupLabel,
-    // A revision of an option-pick result is still exploratory — carry the
-    // pending-finalization flag forward so "Prefer this option" on THIS
-    // revision still graduates it into its own path.
-    fromOptionPick: node.fromOptionPick,
-    optionChoiceLabel: node.optionChoiceLabel,
   };
 
   return { node: revision, edge: edge(node.id, revision.id) };
+}
+
+/**
+ * Fake async: the user explicitly preferred a node and wants to continue in
+ * that direction ("Prefer this option"). Unlike getNodeResponse's revisions
+ * — which replace the node they refine in place, hiding it behind a
+ * Collapsible — this always appends a brand new CHILD node one depth down.
+ * The preferred card stays fully visible on the canvas; only the "Selected"
+ * mark moves onto this new continuation (handled by the caller).
+ */
+export async function getPreferredContinuation(
+  node: CanvasNodeData,
+  feedbackContext?: FeedbackContext
+): Promise<{ node: CanvasNodeData; edge: CanvasEdgeData }> {
+  await delay();
+
+  const nextDepth = node.depth + 1;
+
+  if (nextDepth > MAX_BRANCH_DEPTH) {
+    const clarifying: CanvasNodeData = {
+      id: id("clarify"),
+      kind: "clarifying-question",
+      title: "One more thing before I can go further",
+      body: `We've gone a few rounds here — before continuing: what's the single constraint that matters most to you on "${node.title}"? (time, budget, or team buy-in?)`,
+      parentId: node.id,
+      depth: nextDepth,
+      selected: false,
+    };
+    return { node: clarifying, edge: edge(node.id, clarifying.id) };
+  }
+
+  const { delta, matchedLiked } = biasFor(`${node.title} ${node.body}`, feedbackContext);
+  let body = `Continuing with "${baseTitle(node)}" — the next concrete step is to lock this in with the team this week and check back in after the first cycle.`;
+  if (matchedLiked) {
+    body += `\n\n(Weighted toward the "${matchedLiked}" theme you liked.)`;
+  }
+
+  const next: CanvasNodeData = {
+    id: id("next"),
+    kind: "recommendation",
+    title: baseTitle(node),
+    body,
+    parentId: node.id,
+    depth: nextDepth,
+    selected: false,
+    matchScore:
+      node.matchScore != null ? clamp(node.matchScore + swing() + delta, 40, 99) : undefined,
+    retentionRate:
+      node.retentionRate != null
+        ? clamp(node.retentionRate + swing() + delta, 40, 99)
+        : undefined,
+    transparency: node.transparency,
+    matchFactors: node.matchFactors,
+    peerOutcome: node.peerOutcome,
+    groupId: node.groupId,
+    groupLabel: node.groupLabel,
+  };
+
+  return { node: next, edge: edge(node.id, next.id) };
 }
 
 /**
@@ -199,11 +260,12 @@ export async function getNodeResponse(
  * counter-argument some of the time (a real LLM wouldn't manufacture a
  * counter-argument when it doesn't have a genuinely useful one to make; how
  * often depends on whether this user has liked or disliked counter-arguments
- * before — see counterArgumentChance). Both stay in the picked node's
- * branch-framing group and are marked `fromOptionPick` — a chosen option is
- * still exploratory, continuing its parent's path rather than opening a new
- * one, until the user finalizes ("Prefer this option") one of the results,
- * at which point it graduates into its own path (handled in canvas-screen.tsx).
+ * before — see counterArgumentChance). The two never share a path: the
+ * recommendation stays in the picked node's branch-framing group — it's
+ * still the same suggestion, how ever many picks or revisions deep — while
+ * the counter-argument gets its own fresh path immediately, since it's a
+ * different direction from the suggestion it's responding to, not a
+ * variant of it.
  */
 export async function getOptionResponse(
   node: CanvasNodeData,
@@ -242,11 +304,13 @@ export async function getOptionResponse(
     peerOutcome: mockPeerOutcome(268, "teams that picked this option, last 12 months"),
     groupId: node.groupId,
     groupLabel: node.groupLabel,
-    fromOptionPick: true,
-    optionChoiceLabel: choice?.label,
   };
 
   const includeCounter = Math.random() < counterArgumentChance(feedbackContext);
+  // A counter-argument is its own path from the moment it exists, not the
+  // suggestion's path pending confirmation — the two grow in different
+  // directions, so there's no "still exploratory, might graduate later"
+  // phase to wait through the way a picked option's recommendation has.
   const counter: CanvasNodeData = {
     id: id("counter"),
     kind: "counter-argument",
@@ -257,10 +321,8 @@ export async function getOptionResponse(
     parentId: node.id,
     depth: nextDepth,
     selected: false,
-    groupId: node.groupId,
-    groupLabel: node.groupLabel,
-    fromOptionPick: true,
-    optionChoiceLabel: choice?.label,
+    groupId: id("group"),
+    groupLabel: "Counter-argument",
   };
 
   const nodes = includeCounter ? [branch, counter] : [branch];

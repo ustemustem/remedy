@@ -1,9 +1,18 @@
 import type { CanvasNodeData } from "./types";
 
-/** Horizontal spacing between sibling cards at the same depth (card is w-80 = 320px). */
-const SIBLING_GAP = 380;
-/** Vertical spacing per depth level — generous enough to clear a 3-choice option-set card. */
-const DEPTH_GAP = 460;
+/**
+ * Horizontal spacing between sibling cards at the same depth (card is
+ * w-80 = 320px). Paired with canvas-screen.tsx's FRAME_PADDING_X (16px):
+ * a 44px raw gap leaves 12px between adjacent path frames, comfortably
+ * above the 36px minimum without ever triggering resolveFrameOverlaps'
+ * avoidance nudge — that nudge adds its own spacing on top, so letting it
+ * fire for the common case (a suggestion and its counter-argument, now
+ * always separate paths) would make siblings end up farther apart than
+ * before, not closer.
+ */
+const SIBLING_GAP = 364;
+/** Vertical spacing per depth level — trimmed down from the original layout, still clears a 3-choice option-set card with room to spare. */
+const DEPTH_GAP = 380;
 
 /**
  * Top-to-bottom tree layout: y by depth, x by an in-order pass over each

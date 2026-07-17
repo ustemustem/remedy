@@ -4,6 +4,7 @@
 // Remove this file (and its wiring in canvas-screen.tsx) once a variant is picked.
 
 import type { NodeProps } from "reactflow";
+import { GripVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type FrameVariant = "onlyOnHover" | "alwaysFaint";
@@ -59,6 +60,19 @@ export function GroupFrameNode({ data }: NodeProps<GroupFrameNodeData>) {
       >
         {label}
       </span>
+
+      {/* Purely a "this whole path is grabbable" affordance — the frame's
+          empty area is already the drag handle, this icon doesn't need to
+          handle events. Sits just outside the frame's right edge, follows
+          the same visibility rules as the label. */}
+      <GripVertical
+        className={cn(
+          "pointer-events-none absolute top-1/2 -right-6 h-4 w-4 -translate-y-1/2 transition-opacity duration-150",
+          isPrimary ? "text-primary" : "text-cta",
+          variant === "alwaysFaint" && !active && "opacity-40",
+          (variant === "onlyOnHover" && !active) ? "opacity-0" : "opacity-100"
+        )}
+      />
     </div>
   );
 }

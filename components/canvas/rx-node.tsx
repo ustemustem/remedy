@@ -33,6 +33,8 @@ export interface RxNodeData {
   onFeedbackToggle: (nodeId: string, type: "like" | "dislike") => void;
   onOpenComment: (nodeId: string, pos: { x: number; y: number }) => void;
   onPreferOption: (nodeId: string) => void;
+  /** PROTOTYPE ONLY — branch-framing hover comparison. */
+  onGroupHoverChange?: (groupId: string | null) => void;
 }
 
 const KIND_LABEL: Record<CanvasNodeData["kind"], string> = {
@@ -83,6 +85,7 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
     onFeedbackToggle,
     onOpenComment,
     onPreferOption,
+    onGroupHoverChange,
   } = data;
 
   // Cards with an option set branch exclusively through their own "Select
@@ -104,7 +107,12 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
   }
 
   return (
-    <div data-node-id={id} className="group/node relative">
+    <div
+      data-node-id={id}
+      className="group/node relative"
+      onMouseEnter={() => onGroupHoverChange?.(nodeData.groupId ?? null)}
+      onMouseLeave={() => onGroupHoverChange?.(null)}
+    >
       <div className="nodrag nopan absolute -top-9 left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-none border border-border bg-card p-1 opacity-0 shadow-sm transition-opacity group-hover/node:opacity-100">
         <button
           type="button"

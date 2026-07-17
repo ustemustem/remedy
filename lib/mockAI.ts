@@ -53,13 +53,17 @@ function mockPeerOutcome(cohortSize: number, definition: string): CanvasNodeData
 
 /**
  * Fake async: build the initial canvas from a one-shot chat entry.
- * Returns the Source node plus the AI's proactive first-pass branching —
- * suggestion + counter-argument node pairs, some rendered as A/B/C option sets.
+ * Returns the Source node plus the AI's proactive first-pass branch — a
+ * single recommendation + counter-argument pair. Starting with just one path
+ * (rather than several in parallel) keeps the canvas legible on arrival;
+ * further paths open only as the user's own choices warrant them (see
+ * getOptionResponse's finalize-graduates-a-new-path behavior).
  */
 export async function getInitialCanvas(chatText: string): Promise<CanvasGraph> {
   await delay();
 
   const sourceId = id("source");
+  const groupId = id("group");
 
   const source: CanvasNodeData = {
     id: sourceId,
@@ -84,31 +88,6 @@ export async function getInitialCanvas(chatText: string): Promise<CanvasGraph> {
     ],
   };
 
-  const recA: CanvasNodeData = {
-    id: id("rec"),
-    kind: "recommendation",
-    title: "Async-first standups",
-    body: "Switch daily standups to an async written thread. Teams your size usually see meeting load drop within two weeks, without losing visibility.",
-    parentId: sourceId,
-    depth: 1,
-    selected: false,
-    matchScore: 87,
-    retentionRate: 88,
-    transparency: "organic",
-    matchFactors: MOCK_MATCH_FACTORS,
-    peerOutcome: mockPeerOutcome(412, "teams, 1–10 people, last 12 months"),
-  };
-
-  const counterA: CanvasNodeData = {
-    id: id("counter"),
-    kind: "counter-argument",
-    title: "Counter-argument",
-    body: "Async standups can hide blockers longer if your team doesn't already write clearly — worth pairing with a weekly live sync for the first month.",
-    parentId: sourceId,
-    depth: 1,
-    selected: false,
-  };
-
   const optionSet: OptionSet = {
     id: id("opts"),
     prompt: "Which best describes why planning keeps slipping?",
@@ -119,7 +98,7 @@ export async function getInitialCanvas(chatText: string): Promise<CanvasGraph> {
     ],
   };
 
-  const recB: CanvasNodeData = {
+  const rec: CanvasNodeData = {
     id: id("rec"),
     kind: "recommendation",
     title: "Narrow the active work-in-progress",
@@ -128,9 +107,11 @@ export async function getInitialCanvas(chatText: string): Promise<CanvasGraph> {
     depth: 1,
     selected: false,
     optionSet,
+    groupId,
+    groupLabel: "Path 1",
   };
 
-  const counterB: CanvasNodeData = {
+  const counter: CanvasNodeData = {
     id: id("counter"),
     kind: "counter-argument",
     title: "Counter-argument",
@@ -138,15 +119,12 @@ export async function getInitialCanvas(chatText: string): Promise<CanvasGraph> {
     parentId: sourceId,
     depth: 1,
     selected: false,
+    groupId,
+    groupLabel: "Path 1",
   };
 
-  const nodes = [source, recA, counterA, recB, counterB];
-  const edges = [
-    edge(sourceId, recA.id),
-    edge(sourceId, counterA.id),
-    edge(sourceId, recB.id),
-    edge(sourceId, counterB.id),
-  ];
+  const nodes = [source, rec, counter];
+  const edges = [edge(sourceId, rec.id), edge(sourceId, counter.id)];
 
   return { nodes, edges };
 }
@@ -203,17 +181,29 @@ export async function getNodeResponse(
     transparency: node.transparency,
     matchFactors: node.matchFactors,
     peerOutcome: node.peerOutcome,
+    groupId: node.groupId,
+    groupLabel: node.groupLabel,
+    // A revision of an option-pick result is still exploratory — carry the
+    // pending-finalization flag forward so "Prefer this option" on THIS
+    // revision still graduates it into its own path.
+    fromOptionPick: node.fromOptionPick,
+    optionChoiceLabel: node.optionChoiceLabel,
   };
 
   return { node: revision, edge: edge(node.id, revision.id) };
 }
 
 /**
- * Fake async: user picked an A/B/C option on a node's option set. Returns a
- * fresh recommendation + counter-argument pair rooted at that choice — the
- * same proactive-branching pattern as getInitialCanvas, one level deeper —
- * so picking an option opens up a new "what do you want to do here" moment
- * instead of a dead-end single node.
+ * Fake async: user picked an A/B/C option on a node's option set. Returns
+ * one to two nodes rooted at that choice — always a recommendation, plus a
+ * counter-argument some of the time (a real LLM wouldn't manufacture a
+ * counter-argument when it doesn't have a genuinely useful one to make; how
+ * often depends on whether this user has liked or disliked counter-arguments
+ * before — see counterArgumentChance). Both stay in the picked node's
+ * branch-framing group and are marked `fromOptionPick` — a chosen option is
+ * still exploratory, continuing its parent's path rather than opening a new
+ * one, until the user finalizes ("Prefer this option") one of the results,
+ * at which point it graduates into its own path (handled in canvas-screen.tsx).
  */
 export async function getOptionResponse(
   node: CanvasNodeData,
@@ -250,8 +240,13 @@ export async function getOptionResponse(
     transparency: "sponsored",
     matchFactors: MOCK_MATCH_FACTORS,
     peerOutcome: mockPeerOutcome(268, "teams that picked this option, last 12 months"),
+    groupId: node.groupId,
+    groupLabel: node.groupLabel,
+    fromOptionPick: true,
+    optionChoiceLabel: choice?.label,
   };
 
+  const includeCounter = Math.random() < counterArgumentChance(feedbackContext);
   const counter: CanvasNodeData = {
     id: id("counter"),
     kind: "counter-argument",
@@ -262,11 +257,16 @@ export async function getOptionResponse(
     parentId: node.id,
     depth: nextDepth,
     selected: false,
+    groupId: node.groupId,
+    groupLabel: node.groupLabel,
+    fromOptionPick: true,
+    optionChoiceLabel: choice?.label,
   };
 
+  const nodes = includeCounter ? [branch, counter] : [branch];
   return {
-    nodes: [branch, counter],
-    edges: [edge(node.id, branch.id), edge(node.id, counter.id)],
+    nodes,
+    edges: nodes.map((n) => edge(node.id, n.id)),
   };
 }
 
@@ -280,6 +280,22 @@ function reviseBody(original: string, comment: string) {
 
 function swing() {
   return Math.round((Math.random() - 0.3) * 10);
+}
+
+/**
+ * Decides how likely a counter-argument is worth surfacing, based on how
+ * this user has reacted to counter-arguments before — deriveFeedbackContext
+ * falls back to a node's title when it has no highlight tags, so a
+ * liked/disliked counter-argument card shows up here literally as the theme
+ * "Counter-argument". No signal yet → default to a coin flip.
+ */
+function counterArgumentChance(feedbackContext?: FeedbackContext): number {
+  if (!feedbackContext) return 0.5;
+  const disliked = feedbackContext.disliked.some((t) => t.toLowerCase() === "counter-argument");
+  const liked = feedbackContext.liked.some((t) => t.toLowerCase() === "counter-argument");
+  if (disliked && !liked) return 0.15;
+  if (liked && !disliked) return 0.85;
+  return 0.5;
 }
 
 /**

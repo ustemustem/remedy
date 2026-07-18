@@ -1,17 +1,22 @@
 "use client";
 
+import { useState } from "react";
 import { useReactFlow, type Node } from "reactflow";
-import { ThumbsUp, ThumbsDown } from "lucide-react";
+import { ThumbsUp, ThumbsDown, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ThemeEntry } from "@/lib/graph";
 import type { RxNodeData } from "./rx-node";
 
+const PAGE_SIZE = 3;
+
 /**
- * Persistent top-left panel listing every liked/disliked theme, replacing the
- * old header badge strip. Rendered inside <ReactFlowProvider> (a sibling of
- * <ReactFlow>) so it can call useReactFlow to pan the camera to a theme's
- * source card. Clicking the theme jumps to it; clicking the thumb icon
- * removes that feedback (on every node the theme came from).
+ * Persistent top-center bar listing every liked/disliked theme, replacing
+ * the old header badge strip and the earlier left-side panel. Rendered
+ * inside <ReactFlowProvider> (a sibling of <ReactFlow>) so it can call
+ * useReactFlow to pan the camera to a theme's source card. Shows at most
+ * PAGE_SIZE themes at once with first/prev/next/last paging underneath —
+ * clicking a theme jumps to it, clicking the thumb icon removes that
+ * feedback (on every node the theme came from).
  */
 export function ThemePanel({
   themes,
@@ -23,8 +28,15 @@ export function ThemePanel({
   onToggleFeedback: (nodeIds: string[], type: "like" | "dislike") => void;
 }) {
   const { setCenter } = useReactFlow();
+  const [page, setPage] = useState(0);
 
   if (themes.length === 0) return null;
+
+  const totalPages = Math.max(1, Math.ceil(themes.length / PAGE_SIZE));
+  const clampedPage = Math.min(page, totalPages - 1);
+  const pageThemes = themes.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE);
+  const atStart = clampedPage === 0;
+  const atEnd = clampedPage === totalPages - 1;
 
   function handleJump(nodeIds: string[]) {
     const target = nodes.find((n) => nodeIds.includes(n.id));
@@ -38,16 +50,16 @@ export function ThemePanel({
   }
 
   return (
-    <div className="fixed left-4 top-16 z-40 w-64 space-y-1.5 rounded-lg border border-border bg-card p-3 shadow-lg">
-      <p className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
-        Themes that influenced this
-      </p>
-      <div className="max-h-64 space-y-1 overflow-y-auto">
-        {themes.map((t) => (
+    <div className="fixed left-1/2 top-16 z-40 flex -translate-x-1/2 flex-col items-center gap-1.5">
+      <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 shadow-lg">
+        <span className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+          Themes:
+        </span>
+        {pageThemes.map((t) => (
           <div
             key={`${t.type}-${t.theme}`}
             className={cn(
-              "flex items-center justify-between gap-2 rounded-md border px-2 py-1",
+              "flex items-center gap-1.5 rounded-full border px-2 py-1",
               t.type === "like"
                 ? "border-primary/30 bg-primary/5"
                 : "border-destructive/30 bg-destructive/5"
@@ -57,7 +69,7 @@ export function ThemePanel({
               type="button"
               onClick={() => handleJump(t.nodeIds)}
               title="Jump to card"
-              className="min-w-0 flex-1 truncate text-left text-[11px] font-medium text-foreground hover:underline"
+              className="max-w-40 truncate text-left text-[11px] font-medium text-foreground hover:underline"
             >
               {t.theme}
             </button>
@@ -66,7 +78,7 @@ export function ThemePanel({
               onClick={() => onToggleFeedback(t.nodeIds, t.type)}
               title={t.type === "like" ? "Remove like" : "Remove dislike"}
               className={cn(
-                "flex h-5 w-5 shrink-0 items-center justify-center",
+                "flex h-4 w-4 shrink-0 items-center justify-center",
                 t.type === "like" ? "text-primary" : "text-destructive"
               )}
             >
@@ -79,6 +91,55 @@ export function ThemePanel({
           </div>
         ))}
       </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center gap-0.5 rounded-full border border-border bg-card px-1 py-1 shadow-sm">
+          <PageButton disabled={atStart} title="First page" onClick={() => setPage(0)}>
+            <ChevronsLeft className="h-3.5 w-3.5" />
+          </PageButton>
+          <PageButton
+            disabled={atStart}
+            title="Previous page"
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </PageButton>
+          <PageButton
+            disabled={atEnd}
+            title="Next page"
+            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </PageButton>
+          <PageButton disabled={atEnd} title="Last page" onClick={() => setPage(totalPages - 1)}>
+            <ChevronsRight className="h-3.5 w-3.5" />
+          </PageButton>
+        </div>
+      )}
     </div>
+  );
+}
+
+function PageButton({
+  disabled,
+  title,
+  onClick,
+  children,
+}: {
+  disabled: boolean;
+  title: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      title={title}
+      onClick={onClick}
+      className="flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+    >
+      {children}
+    </button>
   );
 }

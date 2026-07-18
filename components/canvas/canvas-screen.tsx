@@ -18,10 +18,11 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { RxNode, type RxNodeData } from "./rx-node";
-import { RxEdge, type ConnectorVariant, type RxEdgeData } from "./rx-edge";
-import { GroupFrameNode, type FrameVariant, type GroupFrameNodeData } from "./group-frame-node";
-import { ExperimentOverlay, type MinimapVariant } from "./experiment-overlay";
+import { RxEdge } from "./rx-edge";
+import { GroupFrameNode, type GroupFrameNodeData } from "./group-frame-node";
+import { ExperimentOverlay } from "./experiment-overlay";
 import { ThemePanel } from "./theme-panel";
+import { SoftnessProvider } from "./softness-context";
 import { layoutNodes } from "@/lib/layout";
 import {
   getNodeResponse,
@@ -40,10 +41,16 @@ import type { CanvasGraph, CanvasNodeData } from "@/lib/types";
 const nodeTypes = { rxNode: RxNode, groupFrame: GroupFrameNode };
 const edgeTypes = { rxEdge: RxEdge };
 
-// PROTOTYPE ONLY — branch-framing hover comparison. Remove alongside
-// group-frame-node.tsx and the groupId/groupLabel fields once a variant wins.
-const FRAME_PADDING_X = 16;
-const FRAME_PADDING_Y = 36;
+// Branch-framing settings, finalized after comparing variants in the
+// Experiments overlay: right-angle connectors, hover-only path frames,
+// header-bar path grab affordance (minimal content), wide spacing. Only
+// corner radius ("Softness" in the overlay) is still a live experiment.
+const FRAME_PADDING_X = 32;
+// The header strip is 24px tall and sits right at the frame's top edge; a
+// card's hover toolbar floats 36px above the card, so the frame's top
+// padding needs to clear both with room to spare.
+const FRAME_PADDING_Y_TOP = 64;
+const FRAME_PADDING_Y_BOTTOM = 36;
 // Fallback size for a card that hasn't been measured in the DOM yet (first paint).
 const CARD_WIDTH_FALLBACK = 320;
 const CARD_HEIGHT_FALLBACK = 160;
@@ -93,7 +100,7 @@ function computeGroupFrames(
 ): Node<GroupFrameNodeData>[] {
   const groups = new Map<
     string,
-    { label: string; xMin: number; xMax: number; yMin: number; yMax: number }
+    { originTitle: string; originDepth: number; xMin: number; xMax: number; yMin: number; yMax: number }
   >();
 
   for (const n of nodes) {
@@ -108,7 +115,8 @@ function computeGroupFrames(
     const existing = groups.get(n.groupId);
     if (!existing) {
       groups.set(n.groupId, {
-        label: n.groupLabel ?? "Path",
+        originTitle: n.title,
+        originDepth: n.depth,
         xMin: pos.x,
         xMax: right,
         yMin: pos.y,
@@ -119,25 +127,30 @@ function computeGroupFrames(
       existing.xMax = Math.max(existing.xMax, right);
       existing.yMin = Math.min(existing.yMin, pos.y);
       existing.yMax = Math.max(existing.yMax, bottom);
+      // The path's "origin idea" is its shallowest (founding) card's title,
+      // regardless of node creation order.
+      if (n.depth < existing.originDepth) {
+        existing.originTitle = n.title;
+        existing.originDepth = n.depth;
+      }
     }
   }
 
   return Array.from(groups.entries()).map(([groupId, g], index) => ({
     id: `frame-${groupId}`,
     type: "groupFrame",
-    position: { x: g.xMin - FRAME_PADDING_X, y: g.yMin - FRAME_PADDING_Y },
+    position: { x: g.xMin - FRAME_PADDING_X, y: g.yMin - FRAME_PADDING_Y_TOP },
     style: {
       width: g.xMax - g.xMin + FRAME_PADDING_X * 2,
-      height: g.yMax - g.yMin + FRAME_PADDING_Y * 2,
+      height: g.yMax - g.yMin + FRAME_PADDING_Y_TOP + FRAME_PADDING_Y_BOTTOM,
       zIndex: 0,
     },
     draggable: true,
     selectable: false,
     data: {
       groupId,
-      label: g.label,
+      originTitle: g.originTitle,
       color: index % 2 === 0 ? "primary" : "cta",
-      variant: "onlyOnHover" as FrameVariant,
       active: false,
     },
   }));
@@ -223,20 +236,33 @@ export function CanvasScreen({
     // closure on every parent render and isn't meant to gate this effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph]);
+
+  // Lets the rebuild effect read the latest onFinalize without depending on
+  // it directly — the parent (page.tsx) passes a fresh closure every render,
+  // which would otherwise force a full node/edge rebuild on unrelated state.
+  const onFinalizeRef = useRef(onFinalize);
+  useEffect(() => {
+    onFinalizeRef.current = onFinalize;
+  }, [onFinalize]);
   const [pendingNodeIds, setPendingNodeIds] = useState<Set<string>>(new Set());
   const [selection, setSelection] = useState<Selection | null>(null);
   const [commentDraft, setCommentDraft] = useState("");
   const [commentOpen, setCommentOpen] = useState(false);
 
-  // PROTOTYPE ONLY — branch-framing hover comparison.
-  const [frameVariant, setFrameVariant] = useState<FrameVariant>("onlyOnHover");
-  // PROTOTYPE ONLY — experiment-overlay minimap style comparison.
-  const [minimapVariant, setMinimapVariant] = useState<MinimapVariant>("default");
-  // PROTOTYPE ONLY — experiment-overlay connector shape/dash comparison.
-  const [connectorVariant, setConnectorVariant] = useState<ConnectorVariant>("curved");
-  // Lets the rebuild effect read the latest connector variant without
-  // depending on it directly (see the dedicated patch effect below).
-  const connectorVariantRef = useRef(connectorVariant);
+  // Experiments overlay — corner radius + smoothing ("Softness") are the
+  // only settings still live-tunable. Radius also applies globally via the
+  // --radius CSS custom property (app/globals.css) for plain-rounded
+  // elements; radius+smoothing together drive the Apple-style squircle
+  // clip-path on cards (softness-context.tsx / rx-node.tsx).
+  const [cornerRadius, setCornerRadius] = useState(4);
+  const [smoothing, setSmoothing] = useState(0.6);
+  useEffect(() => {
+    document.documentElement.style.setProperty("--radius", `${cornerRadius}px`);
+    return () => {
+      document.documentElement.style.removeProperty("--radius");
+    };
+  }, [cornerRadius]);
+  const softness = useMemo(() => ({ radius: cornerRadius, smoothing }), [cornerRadius, smoothing]);
   const [hoveredGroupId, setHoveredGroupId] = useState<string | null>(null);
   const [measuredSizes, setMeasuredSizes] = useState<
     Record<string, { width: number; height: number }>
@@ -262,7 +288,7 @@ export function CanvasScreen({
 
   const [rfNodes, setRfNodes, onNodesChange] =
     useNodesState<RxNodeData | GroupFrameNodeData>([]);
-  const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<RxEdgeData>([]);
+  const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
   // Liked/disliked themes, independent of "Select" — steers the mock AI's
   // next outputs and surfaces in the header strip below.
@@ -285,6 +311,24 @@ export function CanvasScreen({
     }));
   }, []);
 
+  // A new child's own position always starts from the pure auto-layout spot
+  // (offset 0) — if its parent had been manually dragged (nodeOffsets isn't
+  // inherited by anything downstream automatically, unlike groupOffsets,
+  // which every member of a group already shares), the child pops up at the
+  // structurally "correct" but visually unrelated spot, nowhere near where
+  // the parent actually sits on screen. Carrying the parent's own nudge
+  // forward keeps the child appearing right where the parent visually is.
+  // Only makes sense for a child that stays in the SAME path as its parent
+  // (a continuation) — a child that starts a brand new path (a fresh
+  // counter-argument) is independent and should use its own natural spot.
+  const carryNodeOffset = useCallback((parentId: string, childId: string) => {
+    setNodeOffsets((prev) => {
+      const parentOffset = prev[parentId];
+      if (!parentOffset) return prev;
+      return { ...prev, [childId]: parentOffset };
+    });
+  }, []);
+
   const handleOptionPick = useCallback(
     async (nodeId: string, choiceId: string) => {
       const node = graph.nodes.find((n) => n.id === nodeId);
@@ -296,13 +340,16 @@ export function CanvasScreen({
         feedbackContext
       );
       setGraph((g) => ({ nodes: [...g.nodes, ...newNodes], edges: [...g.edges, ...newEdges] }));
+      for (const newNode of newNodes) {
+        if (newNode.groupId === node.groupId) carryNodeOffset(nodeId, newNode.id);
+      }
       setPendingNodeIds((prev) => {
         const next = new Set(prev);
         next.delete(nodeId);
         return next;
       });
     },
-    [graph, feedbackContext]
+    [graph, feedbackContext, carryNodeOffset]
   );
 
   // Typed comment from the popover — refines the SAME card in place (a
@@ -321,13 +368,14 @@ export function CanvasScreen({
       );
       const carried: CanvasNodeData = { ...newNode, selected: node.selected };
       setGraph((g) => ({ nodes: [...g.nodes, carried], edges: [...g.edges, newEdge] }));
+      carryNodeOffset(nodeId, carried.id);
       setPendingNodeIds((prev) => {
         const next = new Set(prev);
         next.delete(nodeId);
         return next;
       });
     },
-    [graph, feedbackContext]
+    [graph, feedbackContext, carryNodeOffset]
   );
 
   const handleSubmitComment = useCallback(() => {
@@ -361,13 +409,14 @@ export function CanvasScreen({
       );
       const carried: CanvasNodeData = { ...newNode, selected: false };
       setGraph((g) => ({ nodes: [...g.nodes, carried], edges: [...g.edges, newEdge] }));
+      carryNodeOffset(nodeId, carried.id);
       setPendingNodeIds((prev) => {
         const next = new Set(prev);
         next.delete(nodeId);
         return next;
       });
     },
-    [graph, feedbackContext]
+    [graph, feedbackContext, carryNodeOffset]
   );
 
   const handleMouseUp = useCallback(() => {
@@ -428,6 +477,8 @@ export function CanvasScreen({
           onFeedbackToggle: handleFeedbackToggle,
           onOpenComment: handleOpenComment,
           onPreferOption: handlePreferOption,
+          onViewReport: () => onFinalizeRef.current(graph),
+          canFinalize: hasSelectedNode,
           onGroupHoverChange: setHoveredGroupId,
         } satisfies RxNodeData,
       };
@@ -438,21 +489,29 @@ export function CanvasScreen({
     // offsets and real measurements applied.
     const groupFrameNodes = computeGroupFrames(visibleNodes, rawPositions, {});
 
-    const nextEdges: Edge<RxEdgeData>[] = visibleNodes
-      .filter((n) => n.parentId)
-      .map((n) => ({
-        id: `e-${n.parentId}-${n.id}`,
-        source: n.parentId as string,
-        target: n.id,
-        type: "rxEdge",
-        data: { variant: connectorVariantRef.current },
-      }));
-
     setRfNodes([...groupFrameNodes, ...nextNodes]);
+
+    // Edges are built here too — a path-entry edge (its child starts a new
+    // groupId) attaches to that path's own frame header instead of poking
+    // into the first card underneath it; group-frame-node.tsx renders a
+    // matching target Handle at the header's position.
+    const nextEdges: Edge[] = visibleNodes
+      .filter((n) => n.parentId)
+      .map((n) => {
+        const parent = byId.get(n.parentId as string);
+        const entersNewPath = !!n.groupId && parent?.groupId !== n.groupId;
+        return {
+          id: `e-${n.parentId}-${n.id}`,
+          source: n.parentId as string,
+          target: entersNewPath ? `frame-${n.groupId}` : n.id,
+          type: "rxEdge",
+        };
+      });
     setRfEdges(nextEdges);
   }, [
     graph,
     pendingNodeIds,
+    hasSelectedNode,
     handleSelectToggle,
     handleOptionPick,
     handleFeedbackToggle,
@@ -461,21 +520,6 @@ export function CanvasScreen({
     setRfNodes,
     setRfEdges,
   ]);
-
-  // Switching connector style in the experiments overlay patches every
-  // edge's data.variant in place — kept out of the rebuild effect above
-  // (which recreates every node/edge object and would retrigger cards'
-  // mount-in animation) since only the edges' own render needs to change.
-  useEffect(() => {
-    connectorVariantRef.current = connectorVariant;
-    setRfEdges((edges) =>
-      edges.map((e) =>
-        e.data?.variant === connectorVariant
-          ? e
-          : { ...e, data: { ...e.data, variant: connectorVariant } }
-      )
-    );
-  }, [connectorVariant, setRfEdges]);
 
   // Measures each card's actual rendered box continuously — not just once
   // after mount — so a group frame keeps growing while a card's content is
@@ -514,7 +558,7 @@ export function CanvasScreen({
   // Kept out of the main rebuild effect so dragging/measuring/hovering never
   // recreates a card's `data` object (which would retrigger its mount-in
   // animation) — this effect only ever patches `position` on existing nodes,
-  // plus geometry/hover/variant on the groupFrame nodes. It's also the sole
+  // plus geometry/hover state on the groupFrame nodes. It's also the sole
   // writer of basePositionsRef, the un-offset anchor drag math reads from.
   useEffect(() => {
     const { visibleNodes } = resolveVisibleGraph(graph);
@@ -580,10 +624,10 @@ export function CanvasScreen({
             n.position.y === nextFrame.position.y &&
             n.style?.width === nextFrame.style?.width &&
             n.style?.height === nextFrame.style?.height;
+          const nextFrameData = nextFrame.data as GroupFrameNodeData;
           const sameData =
-            currData.variant === frameVariant &&
             currData.active === active &&
-            currData.label === (nextFrame.data as GroupFrameNodeData).label &&
+            currData.originTitle === nextFrameData.originTitle &&
             currData.onHoverChange === setHoveredGroupId;
           if (sameGeometry && sameData) return n;
           changed = true;
@@ -591,7 +635,6 @@ export function CanvasScreen({
             ...nextFrame,
             data: {
               ...nextFrame.data,
-              variant: frameVariant,
               active,
               onHoverChange: setHoveredGroupId,
             },
@@ -604,7 +647,7 @@ export function CanvasScreen({
       });
       return changed ? next : nodes;
     });
-  }, [graph, groupOffsets, nodeOffsets, measuredSizes, frameVariant, hoveredGroupId, setRfNodes]);
+  }, [graph, groupOffsets, nodeOffsets, measuredSizes, hoveredGroupId, setRfNodes]);
 
   // Dragging a group frame moves every card in its path together; dragging a
   // single card nudges just that card (still inside its path — see
@@ -642,26 +685,9 @@ export function CanvasScreen({
 
   const proOptions = useMemo(() => ({ hideAttribution: true }), []);
 
-  // PROTOTYPE ONLY — minimap style comparison. Group-frame nodes are always
-  // excluded from the minimap's own coloring/stroke (they're a big
-  // background rect, not something worth a dot); "path-colored" additionally
-  // tints each card by its path's frame color so the minimap doubles as a
-  // path legend at a glance.
   const minimapNodeColor = useCallback(
-    (n: Node<RxNodeData | GroupFrameNodeData>) => {
-      if (n.type === "groupFrame") return "transparent";
-      // CSS custom properties (var(--x)) aren't reliably resolved as raw SVG
-      // fill values, so these mirror the actual token hex from globals.css.
-      if (minimapVariant !== "pathColored") return "#94a3b8";
-      const groupId = (n.data as RxNodeData | undefined)?.nodeData?.groupId;
-      if (!groupId) return "#94a3b8";
-      const frame = rfNodes.find(
-        (f) => f.type === "groupFrame" && (f.data as GroupFrameNodeData).groupId === groupId
-      );
-      const color = frame ? (frame.data as GroupFrameNodeData).color : undefined;
-      return color === "cta" ? "#cd5c1f" : "#1f4838";
-    },
-    [minimapVariant, rfNodes]
+    (n: Node<RxNodeData | GroupFrameNodeData>) => (n.type === "groupFrame" ? "transparent" : "#94a3b8"),
+    []
   );
   const minimapNodeStrokeColor = useCallback(
     (n: Node<RxNodeData | GroupFrameNodeData>) => (n.type === "groupFrame" ? "transparent" : "#d4d8d0"),
@@ -693,31 +719,22 @@ export function CanvasScreen({
       </header>
 
       <div className="relative flex-1">
-        <ReactFlowProvider>
-          <ReactFlow
-            nodes={rfNodes}
-            edges={rfEdges}
-            onNodesChange={handleNodesChange}
-            onEdgesChange={onEdgesChange}
-            nodeTypes={nodeTypes}
-            edgeTypes={edgeTypes}
-            defaultEdgeOptions={{ type: "rxEdge" }}
-            proOptions={proOptions}
-            fitView
-            minZoom={0.2}
-          >
-            <Background color="var(--border)" gap={24} size={1} />
-            <Controls showInteractive={false} />
-            {minimapVariant === "compactCorner" ? (
-              <MiniMap
-                pannable={false}
-                zoomable={false}
-                nodeColor={minimapNodeColor}
-                nodeStrokeColor={minimapNodeStrokeColor}
-                className="!bg-card opacity-40 transition-opacity hover:!opacity-100"
-                style={{ width: 100, height: 70 }}
-              />
-            ) : (
+        <SoftnessProvider value={softness}>
+          <ReactFlowProvider>
+            <ReactFlow
+              nodes={rfNodes}
+              edges={rfEdges}
+              onNodesChange={handleNodesChange}
+              onEdgesChange={onEdgesChange}
+              nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
+              defaultEdgeOptions={{ type: "rxEdge" }}
+              proOptions={proOptions}
+              fitView
+              minZoom={0.2}
+            >
+              <Background color="var(--border)" gap={24} size={1} />
+              <Controls showInteractive={false} />
               <MiniMap
                 pannable
                 zoomable
@@ -725,25 +742,23 @@ export function CanvasScreen({
                 nodeColor={minimapNodeColor}
                 nodeStrokeColor={minimapNodeStrokeColor}
               />
-            )}
-          </ReactFlow>
+            </ReactFlow>
 
-          <ThemePanel
-            themes={themeEntries}
-            nodes={rfNodes.filter((n) => n.type === "rxNode") as Node<RxNodeData>[]}
-            onToggleFeedback={(nodeIds, type) =>
-              nodeIds.forEach((id) => handleFeedbackToggle(id, type))
-            }
-          />
-        </ReactFlowProvider>
+            <ThemePanel
+              themes={themeEntries}
+              nodes={rfNodes.filter((n) => n.type === "rxNode") as Node<RxNodeData>[]}
+              onToggleFeedback={(nodeIds, type) =>
+                nodeIds.forEach((id) => handleFeedbackToggle(id, type))
+              }
+            />
+          </ReactFlowProvider>
+        </SoftnessProvider>
 
         <ExperimentOverlay
-          frameVariant={frameVariant}
-          onFrameVariantChange={setFrameVariant}
-          minimapVariant={minimapVariant}
-          onMinimapVariantChange={setMinimapVariant}
-          connectorVariant={connectorVariant}
-          onConnectorVariantChange={setConnectorVariant}
+          cornerRadius={cornerRadius}
+          onCornerRadiusChange={setCornerRadius}
+          smoothing={smoothing}
+          onSmoothingChange={setSmoothing}
         />
 
         {selection && (

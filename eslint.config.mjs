@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored via `shadcn add @bklit/*` — not hand-maintained, don't lint.
+    "components/charts/**",
+    "components/shimmering-text.tsx",
   ]),
 ]);
 

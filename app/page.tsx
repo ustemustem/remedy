@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChatEntryScreen } from "@/components/chat-entry-screen";
 import { CanvasScreen } from "@/components/canvas/canvas-screen";
 import { DashboardScreen } from "@/components/dashboard/dashboard-screen";
 import { SessionSidebar } from "@/components/session-sidebar";
+import { ExperimentOverlay } from "@/components/experiment-overlay";
+import type { SourceStyle } from "@/components/canvas/source-style-context";
 import { getInitialCanvas } from "@/lib/mockAI";
 import { createSession, loadSessions, updateSession, type SessionRecord } from "@/lib/sessions";
 import type { CanvasGraph, Step } from "@/lib/types";
@@ -24,6 +26,37 @@ export default function Home() {
     const timer = setTimeout(() => setSessions(loadSessions()), 0);
     return () => clearTimeout(timer);
   }, []);
+
+  // Live experiments — mounted once here (not per-screen) so the same panel
+  // and the same tuned values are reachable from chat, canvas, and dashboard
+  // alike. Corner radius + smoothing drive the canvas's Apple-style squircle
+  // cards (softness-context.tsx / rx-node.tsx) and, via --radius, the app's
+  // whole rounded-corner scale. Card padding / micro type scale / link
+  // weight are design-critique follow-ups that apply to both canvas and
+  // dashboard cards through shared CSS custom properties (app/globals.css).
+  const [cornerRadius, setCornerRadius] = useState(4);
+  const [smoothing, setSmoothing] = useState(0.6);
+  const [cardPadding, setCardPadding] = useState(16);
+  const [textMeta, setTextMeta] = useState(10);
+  const [textLabel, setTextLabel] = useState(11);
+  const [linkWeight, setLinkWeight] = useState<"subtle" | "bold">("subtle");
+  const [sourceStyle, setSourceStyle] = useState<SourceStyle>("default");
+  useEffect(() => {
+    document.documentElement.style.setProperty("--radius", `${cornerRadius}px`);
+  }, [cornerRadius]);
+  useEffect(() => {
+    document.documentElement.style.setProperty("--card-px", `${cardPadding}px`);
+  }, [cardPadding]);
+  useEffect(() => {
+    document.documentElement.style.setProperty("--text-meta", `${textMeta}px`);
+  }, [textMeta]);
+  useEffect(() => {
+    document.documentElement.style.setProperty("--text-label", `${textLabel}px`);
+  }, [textLabel]);
+  useEffect(() => {
+    document.documentElement.dataset.linkWeight = linkWeight;
+  }, [linkWeight]);
+  const softness = useMemo(() => ({ radius: cornerRadius, smoothing }), [cornerRadius, smoothing]);
 
   async function handleChatSubmit(text: string) {
     setLoading(true);
@@ -66,6 +99,10 @@ export default function Home() {
     }
   }
 
+  function handleBackToCanvas() {
+    setStep("canvas");
+  }
+
   function handleReset() {
     setGraph(EMPTY_GRAPH);
     setSessionId(null);
@@ -88,9 +125,11 @@ export default function Home() {
         onGraphChange={handleGraphChange}
         onFinalize={handleFinalize}
         onReset={handleReset}
+        softness={softness}
+        sourceStyle={sourceStyle}
       />
     ) : step === "dashboard" ? (
-      <DashboardScreen graph={graph} onReset={handleReset} />
+      <DashboardScreen graph={graph} onBackToCanvas={handleBackToCanvas} onReset={handleReset} />
     ) : (
       <>
         <ChatEntryScreen onSubmit={handleChatSubmit} loading={loading} />
@@ -111,6 +150,22 @@ export default function Home() {
         onNewSession={handleReset}
       />
       <div className="min-w-0 flex-1">{content}</div>
+      <ExperimentOverlay
+        cornerRadius={cornerRadius}
+        onCornerRadiusChange={setCornerRadius}
+        smoothing={smoothing}
+        onSmoothingChange={setSmoothing}
+        cardPadding={cardPadding}
+        onCardPaddingChange={setCardPadding}
+        textMeta={textMeta}
+        onTextMetaChange={setTextMeta}
+        textLabel={textLabel}
+        onTextLabelChange={setTextLabel}
+        linkWeight={linkWeight}
+        onLinkWeightChange={setLinkWeight}
+        sourceStyle={sourceStyle}
+        onSourceStyleChange={setSourceStyle}
+      />
     </div>
   );
 }

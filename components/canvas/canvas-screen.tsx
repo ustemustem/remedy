@@ -20,9 +20,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { RxNode, type RxNodeData } from "./rx-node";
 import { RxEdge } from "./rx-edge";
 import { GroupFrameNode, type GroupFrameNodeData } from "./group-frame-node";
-import { ExperimentOverlay } from "./experiment-overlay";
 import { ThemePanel } from "./theme-panel";
 import { SoftnessProvider } from "./softness-context";
+import { SourceStyleProvider, type SourceStyle } from "./source-style-context";
 import { layoutNodes } from "@/lib/layout";
 import {
   getNodeResponse,
@@ -54,6 +54,17 @@ const FRAME_PADDING_Y_BOTTOM = 36;
 // Fallback size for a card that hasn't been measured in the DOM yet (first paint).
 const CARD_WIDTH_FALLBACK = 320;
 const CARD_HEIGHT_FALLBACK = 160;
+// Vertical space reserved above a depth row's tallest measured card — clears
+// the card's own hover toolbar plus room for the connector down to the next
+// row, in the same spirit as FRAME_PADDING_Y_TOP/_BOTTOM above.
+const ROW_MARGIN = 100;
+// Even an all-short-cards row (e.g. a chain of Counter-argument "Prefer this
+// option" cards) keeps this much breathing room, so rows never feel cramped.
+const ROW_HEIGHT_FLOOR = 260;
+// How fast a row's effective height chases its measured target each tick —
+// settles in ~10-12 frames (~200ms at 60fps) so a card growing via
+// TypewriterText doesn't snap the rows below it in one frame.
+const ROW_HEIGHT_LERP = 0.2;
 
 type Offset = { x: number; y: number };
 
@@ -221,12 +232,19 @@ export function CanvasScreen({
   onGraphChange,
   onFinalize,
   onReset,
+  softness,
+  sourceStyle,
 }: {
   initialGraph: CanvasGraph;
   /** Fires whenever the graph changes — lets the caller autosave to a session. */
   onGraphChange?: (graph: CanvasGraph) => void;
   onFinalize: (graph: CanvasGraph) => void;
   onReset: () => void;
+  /** Corner radius + Apple-style squircle smoothing — lifted to page.tsx so the
+   * same Experiments panel is reachable from every screen. */
+  softness: { radius: number; smoothing: number };
+  /** Source card visual identity experiment — see source-style-context.tsx. */
+  sourceStyle: SourceStyle;
 }) {
   const [graph, setGraph] = useState<CanvasGraph>(initialGraph);
 
@@ -235,6 +253,14 @@ export function CanvasScreen({
     // Only re-fire when the graph itself changes — onGraphChange is a fresh
     // closure on every parent render and isn't meant to gate this effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph]);
+
+  // Lets the size-measuring rAF loop below read the latest graph (to know
+  // each visible node's depth) without depending on it directly — restarting
+  // that loop on every graph change would reset its row-height smoothing.
+  const graphRef = useRef(graph);
+  useEffect(() => {
+    graphRef.current = graph;
   }, [graph]);
 
   // Lets the rebuild effect read the latest onFinalize without depending on
@@ -249,24 +275,28 @@ export function CanvasScreen({
   const [commentDraft, setCommentDraft] = useState("");
   const [commentOpen, setCommentOpen] = useState(false);
 
-  // Experiments overlay — corner radius + smoothing ("Softness") are the
-  // only settings still live-tunable. Radius also applies globally via the
-  // --radius CSS custom property (app/globals.css) for plain-rounded
-  // elements; radius+smoothing together drive the Apple-style squircle
-  // clip-path on cards (softness-context.tsx / rx-node.tsx).
-  const [cornerRadius, setCornerRadius] = useState(4);
-  const [smoothing, setSmoothing] = useState(0.6);
-  useEffect(() => {
-    document.documentElement.style.setProperty("--radius", `${cornerRadius}px`);
-    return () => {
-      document.documentElement.style.removeProperty("--radius");
-    };
-  }, [cornerRadius]);
-  const softness = useMemo(() => ({ radius: cornerRadius, smoothing }), [cornerRadius, smoothing]);
   const [hoveredGroupId, setHoveredGroupId] = useState<string | null>(null);
   const [measuredSizes, setMeasuredSizes] = useState<
     Record<string, { width: number; height: number }>
   >({});
+  // Effective (lerped) vertical space each card needs below it before its
+  // own children start, keyed by that card's node id — derived from
+  // measuredSizes each tick (see the measuring effect below). Deliberately
+  // per-node rather than per-depth: a branch's y only ever depends on its
+  // own ancestors' heights, never on an unrelated branch's card that
+  // happens to sit at the same depth. lib/layout.ts's layoutNodes turns
+  // this into each node's absolute Y by walking its own ancestor chain.
+  const [nodeRowHeights, setNodeRowHeights] = useState<Record<string, number>>({});
+  // Lets the node-rebuild effect below read the latest row heights for a
+  // brand-new card's very first raw position, without depending on
+  // nodeRowHeights directly — that would recreate every card's `data`
+  // object (and retrigger its mount-in animation) on every measurement
+  // tick. The patch effect further down (which DOES depend on
+  // nodeRowHeights) corrects the position again immediately after.
+  const nodeRowHeightsRef = useRef(nodeRowHeights);
+  useEffect(() => {
+    nodeRowHeightsRef.current = nodeRowHeights;
+  }, [nodeRowHeights]);
   // Manual per-path drag offset — grabbing a group frame moves every card in
   // that group together. Layered on top of the auto-layout position rather
   // than replacing it, since layout is re-derived from scratch on every
@@ -429,6 +459,11 @@ export function CanvasScreen({
     if (!nodeEl) return;
     const nodeId = nodeEl.getAttribute("data-node-id");
     if (!nodeId) return;
+    // Source is the user's own text, not commentable (see rx-node.tsx) — a
+    // text selection there should stay a plain copy-paste selection, not
+    // open the comment popover.
+    const node = graph.nodes.find((n) => n.id === nodeId);
+    if (!node || node.kind === "source") return;
     const rect = sel.getRangeAt(0).getBoundingClientRect();
     setSelection({
       nodeId,
@@ -438,7 +473,7 @@ export function CanvasScreen({
     });
     setCommentDraft("");
     setCommentOpen(true);
-  }, []);
+  }, [graph]);
 
   // General "Add comment" from the hover menu — no text selection required.
   const handleOpenComment = useCallback((nodeId: string, pos: { x: number; y: number }) => {
@@ -456,7 +491,7 @@ export function CanvasScreen({
   // recreates these `data` objects and retriggers their mount-in animation.
   useEffect(() => {
     const { visibleNodes, byId } = resolveVisibleGraph(graph);
-    const rawPositions = layoutNodes(visibleNodes);
+    const rawPositions = layoutNodes(visibleNodes, nodeRowHeightsRef.current);
 
     const nextNodes: Node<RxNodeData | GroupFrameNodeData>[] = visibleNodes.map((n) => {
       const original = byId.get(n.id) as CanvasNodeData;
@@ -533,22 +568,57 @@ export function CanvasScreen({
   useEffect(() => {
     let raf: number;
     const measure = () => {
+      const sizesThisTick: Record<string, { width: number; height: number }> = {};
+      document.querySelectorAll<HTMLElement>(".react-flow__node[data-id]").forEach((el) => {
+        const nodeId = el.getAttribute("data-id");
+        if (!nodeId) return;
+        sizesThisTick[nodeId] = { width: el.offsetWidth, height: el.offsetHeight };
+      });
+
       setMeasuredSizes((prev) => {
         let changed = false;
         const next = { ...prev };
-        document.querySelectorAll<HTMLElement>(".react-flow__node[data-id]").forEach((el) => {
-          const nodeId = el.getAttribute("data-id");
-          if (!nodeId) return;
-          const w = el.offsetWidth;
-          const h = el.offsetHeight;
+        for (const [nodeId, size] of Object.entries(sizesThisTick)) {
           const prevSize = prev[nodeId];
-          if (!prevSize || Math.abs(prevSize.width - w) > 1 || Math.abs(prevSize.height - h) > 1) {
-            next[nodeId] = { width: w, height: h };
+          if (
+            !prevSize ||
+            Math.abs(prevSize.width - size.width) > 1 ||
+            Math.abs(prevSize.height - size.height) > 1
+          ) {
+            next[nodeId] = size;
             changed = true;
           }
-        });
+        }
         return changed ? next : prev;
       });
+
+      // Each card's own target row height is its measured height (this same
+      // tick, falling back to CARD_HEIGHT_FALLBACK if it hasn't rendered
+      // into the DOM yet) plus breathing room, floored so even a short card
+      // never feels cramped. Kept per-node (not per-depth) so one branch's
+      // tall card never affects another branch's spacing.
+      const { visibleNodes } = resolveVisibleGraph(graphRef.current);
+      const targetByNode: Record<string, number> = {};
+      for (const n of visibleNodes) {
+        const height = sizesThisTick[n.id]?.height ?? CARD_HEIGHT_FALLBACK;
+        targetByNode[n.id] = Math.max(height + ROW_MARGIN, ROW_HEIGHT_FLOOR);
+      }
+
+      setNodeRowHeights((prev) => {
+        let changed = false;
+        const next: Record<string, number> = {};
+        for (const [nodeId, target] of Object.entries(targetByNode)) {
+          const hadPrev = Object.prototype.hasOwnProperty.call(prev, nodeId);
+          // A card seen for the first time starts right at its target — no
+          // growing-from-zero pop, since it never had a "before" size.
+          const current = hadPrev ? prev[nodeId] : target;
+          const eased = current + (target - current) * ROW_HEIGHT_LERP;
+          next[nodeId] = eased;
+          if (!hadPrev || Math.abs(prev[nodeId] - eased) > 0.5) changed = true;
+        }
+        return changed ? next : prev;
+      });
+
       raf = requestAnimationFrame(measure);
     };
     raf = requestAnimationFrame(measure);
@@ -562,7 +632,7 @@ export function CanvasScreen({
   // writer of basePositionsRef, the un-offset anchor drag math reads from.
   useEffect(() => {
     const { visibleNodes } = resolveVisibleGraph(graph);
-    const rawPositions = layoutNodes(visibleNodes);
+    const rawPositions = layoutNodes(visibleNodes, nodeRowHeights);
 
     // A newly-graduated (or deeply-grown) path can structurally land where
     // an older path's frame already sits — nudge only the newer one sideways
@@ -647,7 +717,7 @@ export function CanvasScreen({
       });
       return changed ? next : nodes;
     });
-  }, [graph, groupOffsets, nodeOffsets, measuredSizes, hoveredGroupId, setRfNodes]);
+  }, [graph, groupOffsets, nodeOffsets, measuredSizes, nodeRowHeights, hoveredGroupId, setRfNodes]);
 
   // Dragging a group frame moves every card in its path together; dragging a
   // single card nudges just that card (still inside its path — see
@@ -720,6 +790,7 @@ export function CanvasScreen({
 
       <div className="relative flex-1">
         <SoftnessProvider value={softness}>
+        <SourceStyleProvider value={sourceStyle}>
           <ReactFlowProvider>
             <ReactFlow
               nodes={rfNodes}
@@ -752,14 +823,8 @@ export function CanvasScreen({
               }
             />
           </ReactFlowProvider>
+        </SourceStyleProvider>
         </SoftnessProvider>
-
-        <ExperimentOverlay
-          cornerRadius={cornerRadius}
-          onCornerRadiusChange={setCornerRadius}
-          smoothing={smoothing}
-          onSmoothingChange={setSmoothing}
-        />
 
         {selection && (
           <Popover

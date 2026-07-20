@@ -9,22 +9,24 @@ import type { CanvasNodeData } from "./types";
  * (which adds its own spacing on top if it ever fires).
  */
 const SIBLING_GAP = 412;
-/**
- * Vertical spacing per depth level. Y positioning is purely depth-based
- * (no measured-height avoidance the way X positioning has via
- * resolveFrameOverlaps in canvas-screen.tsx) — a fully-expanded option-set
- * card (3 choices + reveal text) renders well past 400px tall, so this
- * needs real margin above that to keep a child from overlapping its
- * parent's bottom.
- */
-const DEPTH_GAP = 520;
 
 /**
- * Top-to-bottom tree layout: y by depth, x by an in-order pass over each
- * node's visible children so siblings spread out horizontally without
- * overlapping.
+ * Top-to-bottom tree layout: x by an in-order pass over each node's visible
+ * children so siblings spread out horizontally without overlapping; y by
+ * walking each node's OWN ancestor chain independently.
+ *
+ * `nodeHeights[nodeId]` is the (already-smoothed) vertical space that node's
+ * own card needs below it before its children start — see
+ * canvas-screen.tsx, which derives it from that specific card's measured
+ * height, not a value shared across sibling branches. This is deliberate:
+ * a branch with a tall card (e.g. a fully-expanded option-set) shouldn't
+ * push down an unrelated branch's short continuation chain just because
+ * they happen to sit at the same depth.
  */
-export function layoutNodes(nodes: CanvasNodeData[]): Record<string, { x: number; y: number }> {
+export function layoutNodes(
+  nodes: CanvasNodeData[],
+  nodeHeights: Record<string, number>
+): Record<string, { x: number; y: number }> {
   const byParent = new Map<string | null, CanvasNodeData[]>();
   for (const n of nodes) {
     const key = n.parentId;
@@ -35,22 +37,32 @@ export function layoutNodes(nodes: CanvasNodeData[]): Record<string, { x: number
   const positions: Record<string, { x: number; y: number }> = {};
   let nextX = 0;
 
-  function place(node: CanvasNodeData): number {
+  function placeX(node: CanvasNodeData): number {
     const children = byParent.get(node.id) ?? [];
     let x: number;
     if (children.length === 0) {
       x = nextX;
       nextX += SIBLING_GAP;
     } else {
-      const childXs = children.map(place);
+      const childXs = children.map(placeX);
       x = childXs.reduce((a, b) => a + b, 0) / childXs.length;
     }
-    positions[node.id] = { x, y: node.depth * DEPTH_GAP };
+    positions[node.id] = { x, y: 0 };
     return x;
   }
 
   const roots = byParent.get(null) ?? [];
-  for (const root of roots) place(root);
+  for (const root of roots) placeX(root);
+
+  // y second pass, shallowest depth first, so every parent's y is already
+  // settled by the time its children read it off `positions`.
+  const byDepth = [...nodes].sort((a, b) => a.depth - b.depth);
+  for (const n of byDepth) {
+    if (!n.parentId) continue; // roots stay at y: 0 from the pass above
+    const parentPos = positions[n.parentId];
+    if (!parentPos) continue;
+    positions[n.id].y = parentPos.y + (nodeHeights[n.parentId] ?? 0);
+  }
 
   return positions;
 }

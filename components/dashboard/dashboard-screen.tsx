@@ -1,26 +1,21 @@
 "use client";
 
-import { RotateCcw } from "lucide-react";
+import { ArrowLeft, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { RecommendationCard } from "./recommendation-card";
+import { PrescriptionReport } from "./prescription-report";
 import { ExitPoll } from "./exit-poll";
-import { getSupersededIds } from "@/lib/graph";
 import type { CanvasGraph } from "@/lib/types";
 
 export function DashboardScreen({
   graph,
+  onBackToCanvas,
   onReset,
 }: {
   graph: CanvasGraph;
+  /** Returns to the canvas without resetting — the graph is untouched by Finalize. */
+  onBackToCanvas: () => void;
   onReset: () => void;
 }) {
-  // Only the current (non-superseded) version of a node counts — if the user
-  // marked "Select" and then kept refining it with comments, the dashboard
-  // should reflect the latest revision's data, not the version that was
-  // selected first.
-  const supersededIds = getSupersededIds(graph.nodes);
-  const selectedNodes = graph.nodes.filter((n) => n.selected && !supersededIds.has(n.id));
-
   return (
     <main className="min-h-full bg-background">
       <header className="flex items-center justify-between border-b border-border px-4 py-2.5">
@@ -31,24 +26,20 @@ export function DashboardScreen({
             Verified prescription
           </h1>
         </div>
-        <Button variant="ghost" size="sm" onClick={onReset}>
-          <RotateCcw className="h-3.5 w-3.5" />
-          Reset session
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={onBackToCanvas}>
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Back to canvas
+          </Button>
+          <Button variant="ghost" size="sm" onClick={onReset}>
+            <RotateCcw className="h-3.5 w-3.5" />
+            Reset session
+          </Button>
+        </div>
       </header>
 
-      <div className="mx-auto max-w-5xl px-4 py-8">
-        {selectedNodes.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No recommendations were marked &ldquo;Select&rdquo; before finalizing.
-          </p>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {selectedNodes.map((node) => (
-              <RecommendationCard key={node.id} node={node} />
-            ))}
-          </div>
-        )}
+      <div className="mx-auto max-w-5xl px-4 pb-16">
+        <PrescriptionReport nodes={graph.nodes} />
       </div>
 
       <ExitPoll />

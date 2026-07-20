@@ -307,10 +307,12 @@ export async function getOptionResponse(
   };
 
   const includeCounter = Math.random() < counterArgumentChance(feedbackContext);
-  // A counter-argument is its own path from the moment it exists, not the
-  // suggestion's path pending confirmation — the two grow in different
-  // directions, so there's no "still exploratory, might graduate later"
-  // phase to wait through the way a picked option's recommendation has.
+  // This counter-argument is a direct rebuttal of the option just picked, not
+  // an independent idea in its own right — it stays in the same path as the
+  // recommendation it's responding to (unlike the initial proactive pair in
+  // getInitialCanvas, which really are two different directions from the
+  // start). Rendering it alongside `branch` in one shared path frame is what
+  // canvas-screen.tsx's groupId-based framing already does automatically.
   const counter: CanvasNodeData = {
     id: id("counter"),
     kind: "counter-argument",
@@ -321,8 +323,8 @@ export async function getOptionResponse(
     parentId: node.id,
     depth: nextDepth,
     selected: false,
-    groupId: id("group"),
-    groupLabel: "Counter-argument",
+    groupId: node.groupId,
+    groupLabel: node.groupLabel,
   };
 
   const nodes = includeCounter ? [branch, counter] : [branch];

@@ -52,7 +52,7 @@ export function ThemePanel({
   return (
     <div className="fixed left-1/2 top-16 z-40 flex -translate-x-1/2 flex-col items-center gap-1.5">
       <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 shadow-lg">
-        <span className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+        <span className="font-mono text-[length:var(--text-meta)] uppercase tracking-wide text-muted-foreground">
           Themes:
         </span>
         {pageThemes.map((t) => (
@@ -69,7 +69,7 @@ export function ThemePanel({
               type="button"
               onClick={() => handleJump(t.nodeIds)}
               title="Jump to card"
-              className="max-w-40 truncate text-left text-[11px] font-medium text-foreground hover:underline"
+              className="max-w-40 truncate text-left text-[length:var(--text-label)] font-medium text-foreground hover:underline"
             >
               {t.theme}
             </button>

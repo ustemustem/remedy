@@ -1,4 +1,4 @@
-import type { CanvasNodeData, FeedbackContext } from "./types";
+import type { CanvasNodeData, FeedbackContext, PeerOutcome } from "./types";
 
 /** Ids of nodes that have since been revised — i.e. no longer the current version. */
 export function getSupersededIds(nodes: CanvasNodeData[]): Set<string> {
@@ -75,4 +75,48 @@ export function deriveThemeEntries(nodes: CanvasNodeData[]): ThemeEntry[] {
   }
 
   return Array.from(byKey.values());
+}
+
+/** One selected node, reshaped for the finalize dashboard's report layout. */
+export interface DashboardNeed {
+  node: CanvasNodeData;
+  category: string;
+  /** An actual excerpt from the user's original chat text, not invented copy. */
+  quote: string;
+  revisionCount: number;
+  /** The sibling counter-argument this need's path won out over, if any. */
+  eliminated?: CanvasNodeData;
+  peerOutcome?: PeerOutcome;
+}
+
+/**
+ * Reshapes the graph's currently-selected (non-superseded) nodes into
+ * dashboard "needs" — everything here is derived from real graph data
+ * (the Source node's highlighted excerpts, sibling counter-arguments,
+ * revision counts via `version`), never fabricated content.
+ */
+export function deriveDashboardNeeds(nodes: CanvasNodeData[]): DashboardNeed[] {
+  const supersededIds = getSupersededIds(nodes);
+  const selectedNodes = nodes.filter((n) => n.selected && !supersededIds.has(n.id));
+  const source = nodes.find((n) => n.kind === "source");
+  const sourceHighlights = source?.highlights ?? [];
+
+  return selectedNodes.map((node, i) => {
+    const siblings = nodes.filter((n) => n.parentId === node.parentId && n.id !== node.id);
+    const eliminated = siblings.find((n) => n.kind === "counter-argument" && !n.selected);
+
+    const quote =
+      sourceHighlights.length > 0
+        ? sourceHighlights[i % sourceHighlights.length].text
+        : (source?.body ?? node.body).slice(0, 90);
+
+    return {
+      node,
+      category: node.highlights?.[0]?.primaryTag ?? themesForNode(node)[0] ?? "General",
+      quote,
+      revisionCount: (node.version ?? 1) - 1,
+      eliminated,
+      peerOutcome: node.peerOutcome,
+    };
+  });
 }

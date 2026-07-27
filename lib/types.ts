@@ -5,7 +5,12 @@ export type NodeKind =
   | "recommendation"
   | "counter-argument"
   | "revision"
-  | "clarifying-question";
+  | "clarifying-question"
+  /** The user's own typed comment — a real child node of whatever card the
+   *  comment box was opened on, not an AI-authored suggestion. See
+   *  rx-node.tsx's canComment/canSelect gates and mockAI.ts's
+   *  getCommentResponse for the AI's reaction to it. */
+  | "comment";
 
 export interface OptionChoice {
   id: string;

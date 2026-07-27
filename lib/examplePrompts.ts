@@ -30,7 +30,7 @@ export const EXAMPLE_PROMPTS_BY_INDUSTRY: Record<Industry, ExamplePrompt[]> = {
       id: "remote-comms",
       label: "Remote team communication",
       scenario:
-        "Our team is fully remote and async, but important decisions keep hanging in the air — nobody lands on a clear conclusion.",
+        "Our team is fully remote and async, but important decisions keep hanging in the air, and nobody lands on a clear conclusion.",
     },
     {
       id: "cross-team-priorities",

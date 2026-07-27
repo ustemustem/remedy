@@ -1,11 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowRight, Loader2 } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { TypewriterText } from "./typewriter-text";
+import AITextLoading from "@/components/kokonutui/ai-text-loading";
 import type { OptionSet } from "@/lib/types";
+
+// Same shimmering-text loading style used everywhere else a card is
+// generating (rx-node.tsx's CARD_LOADING_STAGES) — kept as its own constant
+// since this button's copy is about branching on the picked choice, not a
+// generic "drafting" continuation.
+const PICK_LOADING_STAGES = ["Thinking…", "Branching…"];
 
 const STAGGER_MS = 220;
 /** Matches the parent card's own slide-in-from-bottom-2 duration (rx-node.tsx)
@@ -39,7 +46,7 @@ export function OptionPicker({
               aria-pressed={isPicked}
               style={{ animationDelay: `${startDelayMs}ms` }}
               className={cn(
-                "nodrag animate-in fade-in-0 slide-in-from-bottom-1 fill-mode-both space-y-1.5 rounded-xl border border-border bg-card p-2 text-left text-xs duration-300 ease-out transition-colors",
+                "nodrag animate-in fade-in-0 slide-in-from-bottom-1 fill-mode-both space-y-1.5 rounded-[var(--radius-option)] border border-border bg-card p-2 text-left text-xs duration-300 ease-out transition-colors",
                 "hover:border-primary/60",
                 isPicked && "border-primary bg-primary/5",
                 disabled && "cursor-not-allowed opacity-60"
@@ -64,7 +71,11 @@ export function OptionPicker({
           onClick={() => pickedId && onPick(pickedId)}
         >
           {disabled && pickedId ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <AITextLoading
+              texts={PICK_LOADING_STAGES}
+              interval={700}
+              className="text-[length:var(--text-label)] text-current"
+            />
           ) : (
             <>
               Select and continue

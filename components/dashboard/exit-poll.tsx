@@ -28,7 +28,7 @@ export function ExitPoll() {
         <DialogHeader>
           <DialogTitle>How useful was this?</DialogTitle>
           <DialogDescription>
-            One quick rating — helps us tell if the recommendations actually landed.
+            One quick rating. It helps us tell if the recommendations actually landed.
           </DialogDescription>
         </DialogHeader>
 

@@ -7,7 +7,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-inter);
+  --font-sans: var(--font-geist);
   --font-mono: var(--font-plex-mono);
   --font-heading: var(--font-plex-mono);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -104,6 +104,28 @@
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --radius: 4px;
+  /* Semantic radius tier, one level below --radius (see experiment-overlay.tsx's
+     "Design tokens" section and docs/CanvasRx_DESIGN_GUIDELINES.md): --radius
+     alone drives a single ratio scale (--radius-sm..4xl in the @theme block
+     above), so every rounded-* class moves together — sharpening a button
+     also sharpens every card and panel. These three vars break that: each
+     component category reads its own var instead of the shared ratio scale,
+     so "make buttons sharper" no longer drags cards and panels along. Minor
+     chrome (inputs, tabs, tooltips, the command palette) still reads the
+     plain --radius-* scale on purpose — not every corner in the app needs an
+     opinion, only the ones a user's eye actually tracks as a category. */
+  --radius-control: 6px; /* Button — anything you click to act */
+  --radius-card: 12px; /* Card (canvas nodes + dashboard); canvas also layers
+                          squircle smoothing on top, see softness-context.tsx */
+  --radius-surface: 8px; /* Popover/Dialog/HoverCard/Command/Tooltip, the
+                             Experiments panel itself — containers a level up
+                             from a card */
+  --radius-option: 8px; /* The A/B/C choice cards inside a suggestion card's
+                             OptionPicker — independently tunable from
+                             --radius-card since they're a nested control,
+                             not the outer card itself (still live in
+                             experiment-overlay.tsx, unlike the three above,
+                             which got locked in). */
   /* Design-critique experiments (see experiment-overlay.tsx): consolidates
      canvas's px-3 vs dashboard's px-4 card padding drift, and the six
      hand-tuned 10-12.5px micro-label sizes, into single live-tunable

@@ -42,7 +42,7 @@ export function GroupFrameNode({ data }: NodeProps<GroupFrameNodeData>) {
         // covered by a higher z-index card) is the drag handle for moving
         // the whole path at once. Border/background only shows on hover
         // (of the frame itself, or any card inside it via `active`).
-        "relative h-full w-full cursor-grab rounded-lg border transition-all duration-150 active:cursor-grabbing",
+        "relative h-full w-full cursor-grab rounded-[var(--radius-surface)] border transition-all duration-150 active:cursor-grabbing",
         !active && "border-transparent bg-transparent",
         active &&
           (isPrimary ? "border-primary/40 bg-primary/10" : "border-cta/40 bg-cta/10")

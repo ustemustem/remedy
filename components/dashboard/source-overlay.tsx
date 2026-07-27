@@ -28,7 +28,7 @@ export function SourceOverlay({
               <DialogTitle>Where this came from</DialogTitle>
             </DialogHeader>
 
-            <div className="rounded-lg bg-muted/50 p-3">
+            <div className="rounded-[var(--radius-card)] bg-muted/50 p-3">
               <p className="text-sm italic text-foreground">&ldquo;{need.quote}&rdquo;</p>
               <p className="mt-1 text-[length:var(--text-label)] text-muted-foreground">
                 your words, from the session

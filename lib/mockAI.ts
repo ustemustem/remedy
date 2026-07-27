@@ -4,11 +4,16 @@
 // - getInitialCanvas(chatText)   -> replace with an LLM call that extracts entities/
 //   sentiment from chatText and proactively drafts suggestion + counter-argument pairs
 //   (PRD Section 7 sourcing, vector DB matching).
-// - getNodeResponse(...)         -> replace with an LLM call that reads the node's full
-//   thread (ancestors) plus the new comment and drafts the next revision.
 // - getOptionResponse(...)       -> replace with an LLM call that branches on the picked
 //   option using the same context.
-// All three currently return canned, randomly-delayed data with no real reasoning.
+// - getPreferredContinuation(...) -> replace with an LLM call that continues the
+//   preferred direction using the same context.
+// - getCommentResponse(...)      -> replace with an LLM call that reads a comment node
+//   (the user's own words, appended as a real graph node — see rx-node.tsx's "comment"
+//   kind) plus its ancestor chain, and drafts a suggestion + counter-argument reacting
+//   to it specifically.
+// All four currently return canned, randomly-delayed data with no real reasoning.
+// None of the depth-capping below is a hard wall — see shouldConclude.
 
 import type {
   CanvasGraph,
@@ -17,8 +22,6 @@ import type {
   OptionSet,
   FeedbackContext,
 } from "./types";
-
-export const MAX_BRANCH_DEPTH = 4;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -122,7 +125,7 @@ export async function getInitialCanvas(chatText: string): Promise<CanvasGraph> {
     id: id("counter"),
     kind: "counter-argument",
     title: "Counter-argument",
-    body: "If the real issue is external dependencies rather than internal focus, narrowing WIP alone won't fix the slippage — worth ruling that out first.",
+    body: "If the real issue is external dependencies rather than internal focus, narrowing WIP alone won't fix the slippage. It's worth ruling that out first.",
     parentId: sourceId,
     depth: 1,
     selected: false,
@@ -137,68 +140,48 @@ export async function getInitialCanvas(chatText: string): Promise<CanvasGraph> {
 }
 
 /**
- * Fake async: submit a highlight+comment on any node. Returns a new revision
- * node (v2, v3, ...) linked to the commented-on node, plus its edge.
+ * Mock stand-in for "the model recognizes the conversation has converged" —
+ * every branching path here used to stop at a hard MAX_BRANCH_DEPTH wall
+ * (4); this replaces it with a probability that climbs with depth instead.
+ * There's no cutoff a chain literally cannot cross, but in practice a chain
+ * converges to a conclusion within a handful of turns — depth 1-2 almost
+ * never concludes, depth ~4 is a coin flip, depth 7-8+ is very likely done.
+ * A stronger accumulated like/dislike signal (the user steering more
+ * decisively) nudges the model toward concluding sooner too.
  */
-export async function getNodeResponse(
-  node: CanvasNodeData,
-  commentText: string,
-  feedbackContext?: FeedbackContext
-): Promise<{ node: CanvasNodeData; edge: CanvasEdgeData }> {
-  await delay();
+function conclusionChance(nextDepth: number, feedbackContext?: FeedbackContext): number {
+  const base = 1 - Math.exp(-0.18 * Math.max(0, nextDepth - 1));
+  const signalCount = feedbackContext
+    ? feedbackContext.liked.length + feedbackContext.disliked.length
+    : 0;
+  const bump = signalCount > 0 ? 0.1 : 0;
+  return Math.min(0.97, base + bump);
+}
 
-  const nextDepth = node.depth + 1;
-  const nextVersion = (node.version ?? 1) + 1;
+function shouldConclude(nextDepth: number, feedbackContext?: FeedbackContext): boolean {
+  return Math.random() < conclusionChance(nextDepth, feedbackContext);
+}
 
-  if (nextDepth > MAX_BRANCH_DEPTH) {
-    const clarifying: CanvasNodeData = {
-      id: id("clarify"),
-      kind: "clarifying-question",
-      title: "One more thing before I can refine this further",
-      body: `We've gone a few rounds here — before branching again: what's the single constraint that matters most to you on "${node.title}"? (time, budget, or team buy-in?)`,
-      parentId: node.id,
-      depth: nextDepth,
-      selected: false,
-    };
-    return { node: clarifying, edge: edge(node.id, clarifying.id) };
-  }
-
-  const { delta, matchedLiked } = biasFor(`${node.title} ${node.body}`, feedbackContext);
-  let body = reviseBody(node.body, commentText);
-  if (matchedLiked) {
-    body += `\n\n(Weighted toward the "${matchedLiked}" theme you liked.)`;
-  }
-
-  const revision: CanvasNodeData = {
-    id: id("rev"),
-    kind: "revision",
-    title: `${baseTitle(node)} (v${nextVersion})`,
-    body,
-    parentId: node.id,
-    depth: nextDepth,
+function clarifyingNode(
+  parentId: string,
+  depth: number
+): { node: CanvasNodeData; edge: CanvasEdgeData } {
+  const clarifying: CanvasNodeData = {
+    id: id("clarify"),
+    kind: "clarifying-question",
+    title: "Based on what you picked, I have a recommendation ready for you.",
+    body: "",
+    parentId,
+    depth,
     selected: false,
-    previousVersionId: node.id,
-    version: nextVersion,
-    matchScore:
-      node.matchScore != null ? clamp(node.matchScore + swing() + delta, 40, 99) : undefined,
-    retentionRate:
-      node.retentionRate != null
-        ? clamp(node.retentionRate + swing() + delta, 40, 99)
-        : undefined,
-    transparency: node.transparency,
-    matchFactors: node.matchFactors,
-    peerOutcome: node.peerOutcome,
-    groupId: node.groupId,
-    groupLabel: node.groupLabel,
   };
-
-  return { node: revision, edge: edge(node.id, revision.id) };
+  return { node: clarifying, edge: edge(parentId, clarifying.id) };
 }
 
 /**
  * Fake async: the user explicitly preferred a node and wants to continue in
- * that direction ("Prefer this option"). Unlike getNodeResponse's revisions
- * — which replace the node they refine in place, hiding it behind a
+ * that direction ("Prefer this option"). Unlike a revision — which would
+ * replace the node it refines in place, hiding it behind a
  * Collapsible — this always appends a brand new CHILD node one depth down.
  * The preferred card stays fully visible on the canvas; only the "Selected"
  * mark moves onto this new continuation (handled by the caller).
@@ -211,21 +194,12 @@ export async function getPreferredContinuation(
 
   const nextDepth = node.depth + 1;
 
-  if (nextDepth > MAX_BRANCH_DEPTH) {
-    const clarifying: CanvasNodeData = {
-      id: id("clarify"),
-      kind: "clarifying-question",
-      title: "One more thing before I can go further",
-      body: `We've gone a few rounds here — before continuing: what's the single constraint that matters most to you on "${node.title}"? (time, budget, or team buy-in?)`,
-      parentId: node.id,
-      depth: nextDepth,
-      selected: false,
-    };
-    return { node: clarifying, edge: edge(node.id, clarifying.id) };
+  if (shouldConclude(nextDepth, feedbackContext)) {
+    return clarifyingNode(node.id, nextDepth);
   }
 
   const { delta, matchedLiked } = biasFor(`${node.title} ${node.body}`, feedbackContext);
-  let body = `Continuing with "${baseTitle(node)}" — the next concrete step is to lock this in with the team this week and check back in after the first cycle.`;
+  let body = `Continuing with "${baseTitle(node)}". The next concrete step is to lock this in with the team this week, then check back in after the first cycle.`;
   if (matchedLiked) {
     body += `\n\n(Weighted toward the "${matchedLiked}" theme you liked.)`;
   }
@@ -277,13 +251,18 @@ export async function getOptionResponse(
   const choice = node.optionSet?.choices.find((c) => c.id === selectedOptionId);
   const nextDepth = node.depth + 1;
 
+  if (shouldConclude(nextDepth, feedbackContext)) {
+    const { node: clarifying, edge: e } = clarifyingNode(node.id, nextDepth);
+    return { nodes: [clarifying], edges: [e] };
+  }
+
   const { delta, matchedLiked } = biasFor(
     `${node.title} ${choice?.label ?? ""} ${choice?.description ?? ""}`,
     feedbackContext
   );
 
   let body = choice
-    ? `Since "${choice.description}" — try tightening scope reviews to once a week and capping active workstreams at 3 per person before revisiting tooling.`
+    ? `Since "${choice.description}", try tightening scope reviews to once a week and capping active workstreams at 3 per person before revisiting tooling.`
     : "Here's a tailored next step based on what you picked.";
   if (matchedLiked) {
     body += `\n\n(Weighted toward the "${matchedLiked}" theme you liked.)`;
@@ -318,7 +297,7 @@ export async function getOptionResponse(
     kind: "counter-argument",
     title: "Counter-argument",
     body: choice
-      ? `Worth checking first: if "${choice.label.toLowerCase()}" isn't actually the root cause, this fix won't stick — confirm it before committing the team's time.`
+      ? `Worth checking first: if "${choice.label.toLowerCase()}" isn't actually the root cause, this fix won't stick. Confirm it before committing the team's time.`
       : "Worth validating this is the actual root cause before committing time to it.",
     parentId: node.id,
     depth: nextDepth,
@@ -334,12 +313,77 @@ export async function getOptionResponse(
   };
 }
 
-function baseTitle(node: CanvasNodeData) {
-  return node.title.replace(/\s\(v\d+\)$/, "");
+/**
+ * Fake async: every comment is its own visible graph node now (see
+ * rx-node.tsx's "comment" kind — appended instantly, synchronously, by the
+ * caller, the moment it's submitted). This is what generates the AI's
+ * reaction to it: a suggestion + counter-argument pair as the comment
+ * node's own children, same shape as getOptionResponse. Depth-capped the
+ * same probabilistic way as every other branching path here (see
+ * shouldConclude) — a live back-and-forth can run as long as the
+ * conversation keeps going, it just gets more likely to converge to a
+ * conclusion the deeper it runs. Never called on Source (comments only
+ * ever open on a commentable card — see rx-node.tsx's canComment gate), so
+ * Source is never regenerated no matter how long the conversation runs.
+ */
+export async function getCommentResponse(
+  commentNode: CanvasNodeData,
+  feedbackContext?: FeedbackContext
+): Promise<{ nodes: CanvasNodeData[]; edges: CanvasEdgeData[] }> {
+  await delay();
+
+  const nextDepth = commentNode.depth + 1;
+
+  if (shouldConclude(nextDepth, feedbackContext)) {
+    const { node: clarifying, edge: e } = clarifyingNode(commentNode.id, nextDepth);
+    return { nodes: [clarifying], edges: [e] };
+  }
+
+  const latest = commentNode.body.trim();
+  const { delta, matchedLiked } = biasFor(latest, feedbackContext);
+
+  let body = `Based on "${latest}", here's the adjusted next step: keep the current direction, but fold this in directly before the next check-in.`;
+  if (matchedLiked) {
+    body += `\n\n(Weighted toward the "${matchedLiked}" theme you liked.)`;
+  }
+
+  const branch: CanvasNodeData = {
+    id: id("branch"),
+    kind: "recommendation",
+    title: "Adjusted next step",
+    body,
+    parentId: commentNode.id,
+    depth: nextDepth,
+    selected: false,
+    matchScore: clamp(75 + delta, 40, 99),
+    retentionRate: clamp(78 + delta, 40, 99),
+    transparency: "organic",
+    groupId: commentNode.groupId,
+    groupLabel: commentNode.groupLabel,
+  };
+
+  const includeCounter = Math.random() < counterArgumentChance(feedbackContext);
+  // Directly rebuts the comment just made, not an independent idea — stays
+  // in the same path as the recommendation it's responding to (same
+  // convention as getOptionResponse's counter-argument).
+  const counter: CanvasNodeData = {
+    id: id("counter"),
+    kind: "counter-argument",
+    title: "Counter-argument",
+    body: `Worth checking first: if "${latest.toLowerCase()}" changes the underlying assumption, confirm that before locking in this next step.`,
+    parentId: commentNode.id,
+    depth: nextDepth,
+    selected: false,
+    groupId: commentNode.groupId,
+    groupLabel: commentNode.groupLabel,
+  };
+
+  const nodes = includeCounter ? [branch, counter] : [branch];
+  return { nodes, edges: nodes.map((n) => edge(commentNode.id, n.id)) };
 }
 
-function reviseBody(original: string, comment: string) {
-  return `${original}\n\nRevised per your note ("${comment.trim()}"): adjusted to weigh that in directly.`;
+function baseTitle(node: CanvasNodeData) {
+  return node.title.replace(/\s\(v\d+\)$/, "");
 }
 
 function swing() {

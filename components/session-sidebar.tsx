@@ -109,7 +109,7 @@ export function SessionSidebar({
             type="button"
             onClick={() => onSelect(session)}
             className={cn(
-              "w-full space-y-0.5 rounded-xl border border-transparent p-2 text-left text-xs whitespace-nowrap transition-colors hover:border-border",
+              "w-full space-y-0.5 rounded-[var(--radius-card)] border border-transparent p-2 text-left text-xs whitespace-nowrap transition-colors hover:border-border",
               session.id === activeId && "border-primary bg-primary/5"
             )}
           >

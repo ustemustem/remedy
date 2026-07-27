@@ -9,6 +9,7 @@ import { ExperimentOverlay } from "@/components/experiment-overlay";
 import type { SourceStyle } from "@/components/canvas/source-style-context";
 import { getInitialCanvas } from "@/lib/mockAI";
 import { createSession, loadSessions, updateSession, type SessionRecord } from "@/lib/sessions";
+import { loadingCycleMs, withMinDuration } from "@/lib/timing";
 import type { CanvasGraph, Step } from "@/lib/types";
 
 const EMPTY_GRAPH: CanvasGraph = { nodes: [], edges: [] };
@@ -27,23 +28,39 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, []);
 
+  // Radius/smoothing/source-identity were the live-tunable experiments —
+  // now locked in (see experiment-overlay.tsx, which dropped their sliders
+  // and the Source identity switcher accordingly): Control 6px, Card 12px,
+  // Surface 8px, Smoothing 80%, Source identity "rail" (see
+  // source-style-context.tsx). No longer state — these never change at
+  // runtime, so plain constants replace what used to be tunable useState.
+  const CONTROL_RADIUS = 6;
+  const CARD_RADIUS = 12;
+  const SURFACE_RADIUS = 8;
+  const SMOOTHING = 0.8;
+  const sourceStyle: SourceStyle = "rail";
+
   // Live experiments — mounted once here (not per-screen) so the same panel
   // and the same tuned values are reachable from chat, canvas, and dashboard
-  // alike. Corner radius + smoothing drive the canvas's Apple-style squircle
-  // cards (softness-context.tsx / rx-node.tsx) and, via --radius, the app's
-  // whole rounded-corner scale. Card padding / micro type scale / link
-  // weight are design-critique follow-ups that apply to both canvas and
-  // dashboard cards through shared CSS custom properties (app/globals.css).
-  const [cornerRadius, setCornerRadius] = useState(4);
-  const [smoothing, setSmoothing] = useState(0.6);
+  // alike. Card padding / micro type scale / link weight are design-critique
+  // follow-ups that apply to both canvas and dashboard cards through shared
+  // CSS custom properties.
   const [cardPadding, setCardPadding] = useState(16);
   const [textMeta, setTextMeta] = useState(10);
   const [textLabel, setTextLabel] = useState(11);
   const [linkWeight, setLinkWeight] = useState<"subtle" | "bold">("subtle");
-  const [sourceStyle, setSourceStyle] = useState<SourceStyle>("default");
+  // The A/B/C choice cards inside a suggestion card's OptionPicker — kept
+  // independently tunable from --radius-card (see globals.css) since it's a
+  // nested control, not the outer card.
+  const [optionRadius, setOptionRadius] = useState(8);
   useEffect(() => {
-    document.documentElement.style.setProperty("--radius", `${cornerRadius}px`);
-  }, [cornerRadius]);
+    document.documentElement.style.setProperty("--radius-control", `${CONTROL_RADIUS}px`);
+    document.documentElement.style.setProperty("--radius-card", `${CARD_RADIUS}px`);
+    document.documentElement.style.setProperty("--radius-surface", `${SURFACE_RADIUS}px`);
+  }, []);
+  useEffect(() => {
+    document.documentElement.style.setProperty("--radius-option", `${optionRadius}px`);
+  }, [optionRadius]);
   useEffect(() => {
     document.documentElement.style.setProperty("--card-px", `${cardPadding}px`);
   }, [cardPadding]);
@@ -56,13 +73,20 @@ export default function Home() {
   useEffect(() => {
     document.documentElement.dataset.linkWeight = linkWeight;
   }, [linkWeight]);
-  const softness = useMemo(() => ({ radius: cornerRadius, smoothing }), [cornerRadius, smoothing]);
+  const softness = useMemo(() => ({ radius: CARD_RADIUS, smoothing: SMOOTHING }), []);
 
   async function handleChatSubmit(text: string) {
     setLoading(true);
     setError(null);
     try {
-      const initial = await getInitialCanvas(text);
+      // getInitialCanvas's own mock delay is 500-1500ms at random — short
+      // enough that on a fast roll the button could jump straight from
+      // "Reading…" to the canvas before ever reaching "Preparing canvas…",
+      // the LAST of chat-entry-screen.tsx's three LOADING_STAGES (cycled
+      // every 700ms). withMinDuration floors the wait to one full cycle
+      // (see lib/timing.ts) so every stage always gets seen once before
+      // navigating, regardless of how fast the mock call itself resolves.
+      const initial = await withMinDuration(getInitialCanvas(text), loadingCycleMs(3, 700));
       const record = createSession(text, initial, "canvas");
       setSessions((prev) => [record, ...prev]);
       setSessionId(record.id);
@@ -151,10 +175,8 @@ export default function Home() {
       />
       <div className="min-w-0 flex-1">{content}</div>
       <ExperimentOverlay
-        cornerRadius={cornerRadius}
-        onCornerRadiusChange={setCornerRadius}
-        smoothing={smoothing}
-        onSmoothingChange={setSmoothing}
+        optionRadius={optionRadius}
+        onOptionRadiusChange={setOptionRadius}
         cardPadding={cardPadding}
         onCardPaddingChange={setCardPadding}
         textMeta={textMeta}
@@ -163,8 +185,6 @@ export default function Home() {
         onTextLabelChange={setTextLabel}
         linkWeight={linkWeight}
         onLinkWeightChange={setLinkWeight}
-        sourceStyle={sourceStyle}
-        onSourceStyleChange={setSourceStyle}
       />
     </div>
   );

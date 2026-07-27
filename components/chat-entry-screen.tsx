@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import AITextLoading from "@/components/kokonutui/ai-text-loading";
 import { getThoughtTriggers, type ThoughtTrigger } from "@/lib/thoughtTriggers";
 import { TypewriterText } from "@/components/canvas/typewriter-text";
 import { HEADLINE_PROMPTS } from "@/lib/headlinePrompts";
@@ -12,8 +13,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 
 const TRIGGER_DEBOUNCE_MS = 3000;
-const LOADING_STAGES = ["Reading…", "Extracting themes…", "Preparing canvas…"];
-const LOADING_STAGE_MS = 900;
+const LOADING_STAGES = ["Reading…", "Analyzing…", "Preparing canvas…"];
 const HEADLINE_ROTATE_MS = 5000;
 
 export function ChatEntryScreen({
@@ -25,7 +25,6 @@ export function ChatEntryScreen({
 }) {
   const [text, setText] = useState("");
   const [triggers, setTriggers] = useState<ThoughtTrigger[]>([]);
-  const [loadingStage, setLoadingStage] = useState(0);
   const [headlineIndex, setHeadlineIndex] = useState(0);
   const [headlinePaused, setHeadlinePaused] = useState(false);
   const [textareaFocused, setTextareaFocused] = useState(false);
@@ -42,18 +41,6 @@ export function ChatEntryScreen({
     }, delay);
     return () => clearTimeout(timer);
   }, [text]);
-
-  // Cycle the loading button's stage message while the mock request is in flight.
-  useEffect(() => {
-    if (!loading) {
-      const reset = setTimeout(() => setLoadingStage(0), 0);
-      return () => clearTimeout(reset);
-    }
-    const interval = setInterval(() => {
-      setLoadingStage((s) => (s + 1) % LOADING_STAGES.length);
-    }, LOADING_STAGE_MS);
-    return () => clearInterval(interval);
-  }, [loading]);
 
   // Auto-rotate the headline every 5s — paused while hovered or while the
   // textarea has focus, so it never distracts mid-read or mid-write.
@@ -187,10 +174,11 @@ export function ChatEntryScreen({
             disabled={loading || text.trim().length === 0}
           >
             {loading ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                {LOADING_STAGES[loadingStage]}
-              </>
+              <AITextLoading
+                texts={LOADING_STAGES}
+                interval={700}
+                className="text-[var(--cta-foreground)]"
+              />
             ) : (
               <>
                 Send

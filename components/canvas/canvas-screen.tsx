@@ -17,6 +17,7 @@ import { RotateCcw, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RxNode, type RxNodeData } from "./rx-node";
 import { RxEdge } from "./rx-edge";
+import { ThreadEdge } from "./thread-edge";
 import { GroupFrameNode, type GroupFrameNodeData } from "./group-frame-node";
 import { ThemePanel } from "./theme-panel";
 import { SoftnessProvider } from "./softness-context";
@@ -67,7 +68,7 @@ function forceHoverRecompute() {
 }
 
 const nodeTypes = { rxNode: RxNode, groupFrame: GroupFrameNode };
-const edgeTypes = { rxEdge: RxEdge };
+const edgeTypes = { rxEdge: RxEdge, threadEdge: ThreadEdge };
 
 // Branch-framing settings, finalized after comparing variants in the
 // Experiments overlay: right-angle connectors, hover-only path frames,
@@ -299,6 +300,29 @@ function countDescendants(nodeId: string, allNodes: CanvasNodeData[]): number {
     stack.push(...(byParent.get(n.id) ?? []));
   }
   return count;
+}
+
+/** Whether a collapsed comment's hidden subtree already reached a
+ *  conclusion (a clarifying-question card) — surfaced as an outcome tag on
+ *  the collapsed row so collapsing a thread doesn't also hide whether it
+ *  went anywhere. */
+function describeCollapsedOutcome(
+  nodeId: string,
+  allNodes: CanvasNodeData[]
+): string | undefined {
+  const byParent = new Map<string, CanvasNodeData[]>();
+  for (const n of allNodes) {
+    if (!n.parentId) continue;
+    if (!byParent.has(n.parentId)) byParent.set(n.parentId, []);
+    byParent.get(n.parentId)!.push(n);
+  }
+  const stack = [...(byParent.get(nodeId) ?? [])];
+  while (stack.length > 0) {
+    const n = stack.pop()!;
+    if (n.kind === "clarifying-question") return "Concluded";
+    stack.push(...(byParent.get(n.id) ?? []));
+  }
+  return undefined;
 }
 
 /**
@@ -678,6 +702,11 @@ export function CanvasScreen({
       const pathSelectedCount = pathAncestors ? pathAncestors.filter((a) => a.selected).length : selectedCount;
       const pathFeedback = pathAncestors ? deriveFeedbackContext(pathAncestors) : undefined;
       const isThreadCollapsed = original.kind === "comment" && collapsedThreadIds.has(n.id);
+      // True when this card is the AI's own reaction to a comment (its
+      // visible parent is a "comment" node) — drives the "REFINED BASED ON
+      // YOUR COMMENT" accent treatment in rx-node.tsx, distinguishing a
+      // comment-triggered suggestion from a main-path one at a glance.
+      const repliedToComment = (n.parentId ? byId.get(n.parentId)?.kind : undefined) === "comment";
       return {
         id: n.id,
         type: "rxNode",
@@ -703,7 +732,11 @@ export function CanvasScreen({
           threadIndentLevel: commentIndentLevel(original, byId),
           isThreadCollapsed,
           collapsedReplyCount: isThreadCollapsed ? countDescendants(n.id, graph.nodes) : 0,
+          collapsedOutcome: isThreadCollapsed
+            ? describeCollapsedOutcome(n.id, graph.nodes)
+            : undefined,
           onToggleThreadCollapse: toggleThreadCollapse,
+          repliedToComment,
         } satisfies RxNodeData,
       };
     });
@@ -724,11 +757,15 @@ export function CanvasScreen({
       .map((n) => {
         const parent = byId.get(n.parentId as string);
         const entersNewPath = !!n.groupId && parent?.groupId !== n.groupId;
+        // A comment thread's own connector (see thread-edge.tsx) — anything
+        // whose ancestor chain includes a comment, whether it's the comment
+        // itself or the AI's reply to one.
+        const isThreadEdge = commentIndentLevel(n, byId) > 0;
         return {
           id: `e-${n.parentId}-${n.id}`,
           source: n.parentId as string,
           target: entersNewPath ? `frame-${n.groupId}` : n.id,
-          type: "rxEdge",
+          type: isThreadEdge ? "threadEdge" : "rxEdge",
         };
       });
     setRfEdges(nextEdges);

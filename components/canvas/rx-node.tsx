@@ -4,7 +4,7 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { Handle, Position, type NodeProps } from "reactflow";
 import {
   ChevronRight,
-  ChevronDown,
+  Minus,
   Check,
   GripVertical,
   MessageSquare,
@@ -84,7 +84,18 @@ export interface RxNodeData {
   /** How many descendants are currently hidden by the collapse above —
    *  shown in the "N replies" summary row. 0 when not collapsed. */
   collapsedReplyCount: number;
+  /** Set when the hidden subtree already reached a conclusion (a
+   *  clarifying-question card) — shown as an outcome tag on the collapsed
+   *  row so collapsing a thread doesn't also hide whether it went
+   *  anywhere. Undefined when the branch is still open-ended. */
+  collapsedOutcome?: string;
   onToggleThreadCollapse: (nodeId: string) => void;
+  /** True when this card's visible parent is a "comment" node — i.e. this
+   *  suggestion/counter-argument is the AI's own reaction to a comment, not
+   *  a main-path continuation. Drives the "REFINED BASED ON YOUR COMMENT"
+   *  accent treatment below (a green left border + swapped eyebrow copy),
+   *  so a comment-triggered card reads differently from one at a glance. */
+  repliedToComment: boolean;
   /** For clarifying-question nodes (depth cap reached) — a shortcut straight to the finalize dashboard.
    *  Reaching this card at all means the user preferred their way here, so
    *  its "View report" button is never gated on any selected/finalize
@@ -167,10 +178,11 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
     commentQuotedText,
     onSubmitComment,
     onCloseComment,
-    threadIndentLevel,
     isThreadCollapsed,
     collapsedReplyCount,
+    collapsedOutcome,
     onToggleThreadCollapse,
+    repliedToComment,
   } = data;
 
   // Local, uncontrolled draft text — kept in this component (not lifted to
@@ -213,6 +225,20 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
   // they're never selectable for the report.
   const canComment = COMMENTABLE_KINDS.includes(nodeData.kind) && !nodeData.optionSet;
   const isComment = nodeData.kind === "comment";
+  // "You replied" (amber accent) for the comment itself, "Refined based on
+  // your comment" (green left-accent, see the Card below) for the AI's own
+  // reaction to it — both replace the generic KIND_LABEL so a
+  // comment-triggered exchange reads distinctly from the main path.
+  const eyebrowLabel = isComment
+    ? "You replied"
+    : repliedToComment
+      ? "Refined based on your comment"
+      : KIND_LABEL[nodeData.kind];
+  // A comment-thread card (the comment itself, or the AI's reply to one)
+  // reads one step smaller than a main-path card — text-sm/px-3 vs.
+  // text-base/px-4 — so a branch visually de-emphasizes against the tree
+  // it hangs off of.
+  const isBranchCard = isComment || repliedToComment;
 
   const isSource = nodeData.kind === "source";
   const sourceStyle = useSourceStyle();
@@ -298,22 +324,25 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
   // descendants drop out of the visible set (see canvas-screen.tsx's
   // resolveVisibleGraph) — so re-expanding just brings them straight back.
   if (isThreadCollapsed) {
+    // The connecting line itself comes from thread-edge.tsx (a real React
+    // Flow edge with exact source/target coordinates) — this card doesn't
+    // draw its own local guide line, which used to run at a slightly
+    // different inset and read as a kink where the two disagreed.
     return (
       <div data-node-id={id} className="group/node relative">
-        {threadIndentLevel > 0 && (
-          <div
-            className="pointer-events-none absolute top-0 -left-3 h-full border-l-2 border-dashed border-muted-foreground/25"
-            aria-hidden="true"
-          />
-        )}
         <button
           type="button"
           onClick={() => onToggleThreadCollapse(id)}
-          className="nodrag flex items-center gap-1.5 rounded-[var(--radius-control)] border border-dashed border-border bg-muted/40 px-3 py-1.5 text-[length:var(--text-label)] text-muted-foreground hover:border-foreground/40 hover:text-foreground"
+          className="nodrag flex items-center gap-1.5 rounded-[var(--radius-control)] border border-dashed border-border bg-muted/40 px-3 py-1.5 text-[length:var(--text-label)] text-muted-foreground animate-in fade-in-0 zoom-in-95 duration-200 hover:border-foreground/40 hover:text-foreground"
         >
           <ChevronRight className="h-3 w-3" />
           <MessageSquare className="h-3 w-3" />
           {collapsedReplyCount} {collapsedReplyCount === 1 ? "reply" : "replies"}
+          {collapsedOutcome && (
+            <span className="ml-0.5 border-l border-border pl-1.5 text-muted-foreground/70">
+              {collapsedOutcome}
+            </span>
+          )}
         </button>
       </div>
     );
@@ -406,15 +435,24 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
           while hovering the card itself (not the path). */}
       <GripVertical className="pointer-events-none absolute top-1/2 -right-5 h-4 w-4 -translate-y-1/2 text-muted-foreground opacity-0 transition-opacity group-hover/node:opacity-100" />
 
-      {/* Reddit-style thread guide line — the position shift itself comes
-          from lib/layout.ts's commentIndentLevel (baked into this node's
-          x), this is purely the visual cue that a comment conversation
-          reads as its own indented side-thread, not more main-path content. */}
-      {threadIndentLevel > 0 && (
-        <div
-          className="pointer-events-none absolute top-0 -left-3 h-full border-l-2 border-dashed border-muted-foreground/25"
-          aria-hidden="true"
-        />
+      {/* Collapse control lives on the thread line itself (a floating
+          circle, matching thread-edge.tsx's cap), not inside the card's own
+          header — collapsing is an action on the BRANCH, not on the card's
+          content. Only a comment with something under it can collapse.
+          The connecting dashed line itself comes entirely from
+          thread-edge.tsx now — this card no longer draws its own local
+          guide line alongside it (see the removed threadIndentLevel div;
+          two independently-computed lines never lined up pixel-for-pixel
+          and read as a kink). */}
+      {isComment && hasContinuation && (
+        <button
+          type="button"
+          onClick={() => onToggleThreadCollapse(id)}
+          title="Collapse thread"
+          className="nodrag absolute -top-2 -left-3 z-10 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full border border-cta bg-card text-cta hover:bg-cta hover:text-cta-foreground"
+        >
+          <Minus className="h-3 w-3" />
+        </button>
       )}
 
       <Card
@@ -435,6 +473,11 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
           pending && "opacity-60",
           nodeData.feedback === "like" && "ring-1 ring-primary/40",
           nodeData.feedback === "dislike" && "ring-1 ring-destructive/40",
+          // "You replied" — a visible amber tint (the design system's
+          // --accent token, not --cta) so a comment reads at a glance as
+          // "I said this", distinct from both an AI suggestion card and
+          // the cta-orange "reply to this" affordances.
+          isComment && "border-accent/40 bg-accent/10",
           // "Rail" restructures the card into a 2-column grid — a solid
           // accent panel alongside the normal header+body stack — instead
           // of layering a badge/type treatment on an unchanged card.
@@ -449,7 +492,10 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
           // own py-3 already (matching CardHeader/CardContent's rhythm) —
           // without this, the base py-3 above stacks on top and leaves a
           // plain --card gap above the status zone before it even starts.
-          isClarifying && "py-0"
+          isClarifying && "py-0",
+          // Main-path cards read one density step larger than a
+          // comment-thread branch card (text-base/p-4 vs. text-sm/p-3).
+          !isRail && !isClarifying && !isBranchCard && "py-4"
         )}
       >
         {isRail && (
@@ -483,6 +529,17 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
               strokeWidth={2}
             />
           </svg>
+        )}
+
+        {/* "Refined based on your comment" left accent — a separate strip
+            rather than a CSS border-left, since squircle (above) disables
+            the card's own plain border whenever softness > 0; this stays
+            visible either way. */}
+        {repliedToComment && (
+          <div
+            className="pointer-events-none absolute inset-y-2 left-0 w-1 rounded-full bg-primary"
+            aria-hidden="true"
+          />
         )}
 
         <Handle type="target" position={Position.Top} className="!bg-border" />
@@ -522,24 +579,24 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
           </>
         ) : (
           <>
-        <CardHeader className="px-[var(--card-px)]">
+        <CardHeader className={isBranchCard ? "px-3" : "px-[var(--card-px)]"}>
         <div className="flex items-center justify-between gap-2">
-          <CardTitle className="flex items-center gap-1.5 font-mono text-[length:var(--text-label)] font-bold uppercase tracking-wide text-muted-foreground">
-            {isSource && sourceStyle === "quote" && <Quote className="h-3 w-3 shrink-0" />}
-            {isComment && hasContinuation ? (
-              <button
-                type="button"
-                onClick={() => onToggleThreadCollapse(id)}
-                title="Collapse thread"
-                className="nodrag flex items-center gap-1 hover:text-foreground"
-              >
-                <ChevronDown className="h-3 w-3 shrink-0" />
-                <MessageSquare className="h-3 w-3 shrink-0" />
-              </button>
-            ) : (
-              isComment && <MessageSquare className="h-3 w-3 shrink-0" />
+          <CardTitle
+            className={cn(
+              "flex items-center gap-1.5 font-mono text-[length:var(--text-label)] font-bold uppercase tracking-wide",
+              isComment ? "text-cta" : repliedToComment ? "text-primary" : "text-muted-foreground"
             )}
-            {KIND_LABEL[nodeData.kind]}
+          >
+            {isSource && sourceStyle === "quote" && <Quote className="h-3 w-3 shrink-0" />}
+            {isComment && (
+              // Small filled "avatar" dot standing in for the commenter —
+              // there's no user-identity system in this prototype, so a
+              // plain accent-colored dot (not a fake name/initial) is the
+              // honest version of the reference's avatar circle.
+              <span className="h-3.5 w-3.5 shrink-0 rounded-full bg-cta" aria-hidden="true" />
+            )}
+            {repliedToComment && <span aria-hidden="true">↺</span>}
+            {eyebrowLabel}
           </CardTitle>
           <div className="flex items-center gap-1.5">
             {isSource && sourceStyle === "stamp" && (
@@ -552,7 +609,11 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
                 v{nodeData.version}
               </span>
             )}
-            {hasContinuation && (
+            {/* Main-path only — a comment's own "N replies" collapse
+                control already communicates continuation for a thread,
+                so repeating "Continued" on the comment card itself is
+                redundant noise on top of that. */}
+            {hasContinuation && !isComment && (
               <span className="flex items-center gap-0.5 font-mono text-[length:var(--text-meta)] uppercase tracking-wide text-muted-foreground/70">
                 <ArrowDown className="h-2.5 w-2.5" />
                 Continued
@@ -560,13 +621,24 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
             )}
           </div>
         </div>
-        <p className="text-sm font-semibold text-foreground">{nodeData.title}</p>
+        {/* The comment's own title is always the literal word "Comment"
+            (see canvas-screen.tsx's addCommentNode) — redundant once the
+            "You replied" eyebrow above already says so, so it's dropped
+            here rather than shown twice. */}
+        {!isComment && (
+          <p className={cn("font-semibold text-foreground", isBranchCard ? "text-sm" : "text-base")}>
+            {nodeData.title}
+          </p>
+        )}
       </CardHeader>
 
-      <CardContent className="space-y-3 px-[var(--card-px)]">
+      <CardContent className={cn("space-y-3", isBranchCard ? "px-3" : "px-[var(--card-px)]")}>
         <p
           data-node-id={id}
-          className="nodrag cursor-text text-sm whitespace-pre-wrap text-foreground select-text"
+          className={cn(
+            "nodrag cursor-text whitespace-pre-wrap text-foreground select-text",
+            isBranchCard ? "text-sm" : "text-base"
+          )}
         >
           {isSource ? (
             sourceStyle === "quote" ? (
@@ -580,8 +652,9 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
             // Your own words appear instantly, already complete — replaying
             // them through the typewriter reveal (built for AI-authored
             // text streaming in) would look like the app is re-typing
-            // something you already typed.
-            nodeData.body
+            // something you already typed. Quoted/italicized to read as
+            // your own voice, matching Source's own "quote" treatment.
+            <span className="italic">&ldquo;{nodeData.body}&rdquo;</span>
           ) : (
             <TypewriterText text={nodeData.body} />
           )}

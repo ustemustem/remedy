@@ -50,6 +50,14 @@ Sharper corners read clinical, not "rounded SaaS card."
 Load via `next/font/google` for `IBM Plex Mono` and `Inter`. Do not mix in a third
 display face — restraint matters more than variety here.
 
+**Labels vs. actions.** A label (what kind of thing is this — `SUGGESTION`,
+`COUNTER-ARGUMENT`, an origin strip's `REVISED`/`REDIRECTED`) always takes the mono/
+bold/uppercase/tracked treatment, same as a section header. An action (something you
+click to do a thing — `Prefer this option`, `Restore this version`, `Not what I
+meant`, the context-input's own copy) is always sentence case, no mono, no tracking.
+Don't lump the two together just because they sit in the same component — a card can
+carry both in the same row, styled differently, and that's correct.
+
 ## 3. Signature Element
 
 Two motifs carry the "Rx" identity — keep everything else quiet:

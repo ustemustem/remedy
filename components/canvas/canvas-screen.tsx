@@ -21,20 +21,25 @@ import { GroupFrameNode, type GroupFrameNodeData } from "./group-frame-node";
 import { ThemePanel } from "./theme-panel";
 import { SoftnessProvider } from "./softness-context";
 import { SourceStyleProvider, type SourceStyle } from "./source-style-context";
-import { layoutNodes, commentIndentLevel } from "@/lib/layout";
+import { layoutNodes } from "@/lib/layout";
 import {
   getOptionResponse,
   getPreferredContinuation,
-  getCommentResponse,
+  classifyNote,
+  refinePlainCard,
+  refineChoiceOptions,
+  branchFromNote,
+  branchFromChoiceFraming,
 } from "@/lib/mockAI";
 import {
   getSupersededIds,
   resolveVisibleParentId,
   deriveFeedbackContext,
   deriveThemeEntries,
+  isStale,
 } from "@/lib/graph";
 import { loadingCycleMs, withMinDuration } from "@/lib/timing";
-import type { CanvasGraph, CanvasNodeData } from "@/lib/types";
+import type { CanvasGraph, CanvasNodeData, CardOrigin, ChoiceOption } from "@/lib/types";
 
 // Matches rx-node.tsx's CARD_LOADING_STAGES and option-picker.tsx's
 // PICK_LOADING_STAGES — both two stages at a 700ms interval. Every mock AI
@@ -42,10 +47,6 @@ import type { CanvasGraph, CanvasNodeData } from "@/lib/types";
 // full cycle before the resulting card/thread-jump/close actually happens
 // (see lib/timing.ts).
 const ACTION_LOADING_MS = loadingCycleMs(2, 700);
-
-function makeCommentId() {
-  return `comment-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-}
 
 // Browsers only recompute a hovered element's :hover state on an actual
 // pointer event — they do NOT re-run hit-testing just because the DOM
@@ -235,45 +236,19 @@ function resolveFrameOverlaps(frames: Node<GroupFrameNodeData>[]): Record<string
 }
 
 /**
- * Which card currently has its comment box open — at most one at a time.
- * Submitting a comment appends it as a real child node instantly (see
- * handleSubmitComment/addCommentNode) and closes the box immediately;
- * there's no "thread pointer" to carry forward anymore. Continuing a
- * specific conversation further means opening the comment box again on
- * whichever card (the original, or one of the new comment/AI cards it
- * produced) the user wants to keep talking to — every commentable kind,
- * including "comment" itself, carries the same trigger (see rx-node.tsx's
- * canComment), so this reads as one continuous live chat rather than a
- * single wandering thread.
+ * A revision (see lib/graph.ts's getSupersededIds) hides the node it
+ * replaced, and a stale subtree (lib/graph.ts's isStale — a downstream card
+ * created under a premise its parent has since revised away) hides itself
+ * without ever being deleted. Both are derived from scratch on every
+ * render rather than stored as their own state, so a hidden node's
+ * descendants always re-point at whatever is actually on screen.
  */
-interface CommentBoxState {
-  nodeId: string;
-  /** Selected-text quote to show above the draft. */
-  quotedText: string;
-}
-
-/**
- * Reddit-style thread collapse: a collapsed comment (see canvas-screen.tsx's
- * collapsedThreadIds) stays visible itself — it renders its own "N replies"
- * collapsed summary row (rx-node.tsx) — but every descendant underneath it
- * (its AI reply, any further comments on that reply, and so on) drops out
- * of the visible set entirely, same mechanism as a superseded revision.
- */
-function resolveVisibleGraph(graph: CanvasGraph, collapsedIds: Set<string>) {
+function resolveVisibleGraph(graph: CanvasGraph) {
   const supersededIds = getSupersededIds(graph.nodes);
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
 
-  function hiddenByCollapse(node: CanvasNodeData): boolean {
-    let pid = node.parentId;
-    while (pid) {
-      if (collapsedIds.has(pid)) return true;
-      pid = byId.get(pid)?.parentId ?? null;
-    }
-    return false;
-  }
-
   const visibleNodes = graph.nodes
-    .filter((n) => !supersededIds.has(n.id) && !hiddenByCollapse(n))
+    .filter((n) => !supersededIds.has(n.id) && !isStale(n, byId))
     .map((n) => ({
       ...n,
       parentId: resolveVisibleParentId(n.parentId, byId, supersededIds),
@@ -282,11 +257,35 @@ function resolveVisibleGraph(graph: CanvasGraph, collapsedIds: Set<string>) {
   return { visibleNodes, byId };
 }
 
-/** How many descendants a collapsed comment is currently hiding — shown as
- *  "N replies" in its collapsed summary row. */
-function countDescendants(nodeId: string, allNodes: CanvasNodeData[]): number {
+/** Every descendant id of `nodeId`, walking the RAW (unfiltered) graph —
+ *  used by flip() to actually remove a branch card (and anything the user
+ *  built further on it) rather than merely hiding it, since there's no
+ *  revision to hang staleness off of for a card that's being deleted
+ *  outright. */
+function collectDescendantIds(nodeId: string, allNodes: CanvasNodeData[]): Set<string> {
   const byParent = new Map<string, CanvasNodeData[]>();
   for (const n of allNodes) {
+    if (!n.parentId) continue;
+    if (!byParent.has(n.parentId)) byParent.set(n.parentId, []);
+    byParent.get(n.parentId)!.push(n);
+  }
+  const result = new Set<string>();
+  const stack = [...(byParent.get(nodeId) ?? [])];
+  while (stack.length > 0) {
+    const n = stack.pop()!;
+    result.add(n.id);
+    stack.push(...(byParent.get(n.id) ?? []));
+  }
+  return result;
+}
+
+/** How many currently-visible cards sit downstream of this one on the main
+ *  path — powers the context box's disclosure line ("Revising this will
+ *  replace the N cards below it"), which scales with the actual cost of a
+ *  `refine_in_place` instead of a one-size-fits-all confirmation dialog. */
+function countVisibleDownstream(nodeId: string, visibleNodes: CanvasNodeData[]): number {
+  const byParent = new Map<string, CanvasNodeData[]>();
+  for (const n of visibleNodes) {
     if (!n.parentId) continue;
     if (!byParent.has(n.parentId)) byParent.set(n.parentId, []);
     byParent.get(n.parentId)!.push(n);
@@ -299,6 +298,93 @@ function countDescendants(nodeId: string, allNodes: CanvasNodeData[]): number {
     stack.push(...(byParent.get(n.id) ?? []));
   }
   return count;
+}
+
+/** Pushes a new revision onto a PLAIN card and makes it the active one —
+ *  `refine_in_place`. Downstream cards are never touched here; they go
+ *  stale on their own (see lib/graph.ts's isStale) the moment this card's
+ *  `activeRevision` no longer matches what they were `createdUnderRevision`. */
+function pushPlainRevision(
+  node: CanvasNodeData,
+  title: string,
+  body: string,
+  note: string
+): CanvasNodeData {
+  const nextRevisionNum = (node.activeRevision ?? 1) + 1;
+  const revisions = [
+    ...(node.revisions ?? []),
+    { revision: nextRevisionNum, title, body, note, createdAt: new Date().toISOString() },
+  ];
+  return {
+    ...node,
+    title,
+    body,
+    revisions,
+    activeRevision: nextRevisionNum,
+    origin: { intent: "refine_in_place", note },
+  };
+}
+
+/** Same as pushPlainRevision, but for a CHOICE card — the option SET
+ *  regenerates, not the card's own title/body (per the design: correcting
+ *  a question means "these options don't fit," not "the prose is wrong").
+ *  Any prior pick clears. */
+function pushChoiceRevision(
+  node: CanvasNodeData,
+  options: ChoiceOption[],
+  note: string
+): CanvasNodeData {
+  const nextRevisionNum = (node.activeRevision ?? 1) + 1;
+  const revisions = [
+    ...(node.revisions ?? []),
+    {
+      revision: nextRevisionNum,
+      title: node.title,
+      body: node.body,
+      options,
+      note,
+      createdAt: new Date().toISOString(),
+    },
+  ];
+  return {
+    ...node,
+    options,
+    picked: null,
+    revisions,
+    activeRevision: nextRevisionNum,
+    origin: { intent: "refine_in_place", note },
+  };
+}
+
+/**
+ * "Restore this version" — a plain revert (no branching, no note
+ * re-application) back to the revision just before the current one.
+ * Truncates any revisions ahead of the restored one, so a later fresh
+ * `refine_in_place` doesn't collide on revision numbers with a "redo"
+ * history nothing ever re-attaches to.
+ */
+function restoreVersion(node: CanvasNodeData): CanvasNodeData {
+  // A choice card that took the user's own framing has no revision to step
+  // back to — there's simply the framing to drop, back to the question.
+  if (node.userFraming != null) {
+    return { ...node, userFraming: null, origin: null, picked: null };
+  }
+  const prevRevisionNum = (node.activeRevision ?? 1) - 1;
+  if (prevRevisionNum < 1) return node;
+  const prevRevision = node.revisions?.find((r) => r.revision === prevRevisionNum);
+  if (!prevRevision) return node;
+  const truncatedRevisions = (node.revisions ?? []).filter((r) => r.revision <= prevRevisionNum);
+  const origin: CardOrigin | null =
+    prevRevisionNum === 1 ? null : { intent: "refine_in_place", note: prevRevision.note ?? "" };
+  return {
+    ...node,
+    title: prevRevision.title,
+    body: prevRevision.body,
+    ...(node.cardType === "choice" ? { options: prevRevision.options, picked: null } : {}),
+    revisions: truncatedRevisions,
+    activeRevision: prevRevisionNum,
+    origin,
+  };
 }
 
 /**
@@ -371,26 +457,6 @@ export function CanvasScreen({
     onFinalizeRef.current = onFinalize;
   }, [onFinalize]);
   const [pendingNodeIds, setPendingNodeIds] = useState<Set<string>>(new Set());
-  const [commentBox, setCommentBox] = useState<CommentBoxState | null>(null);
-  // Reddit-style thread collapse — ids of "comment" nodes whose descendants
-  // are currently hidden (see resolveVisibleGraph). A node stays in this set
-  // until the user re-expands it; nothing here affects the underlying graph.
-  const [collapsedThreadIds, setCollapsedThreadIds] = useState<Set<string>>(new Set());
-  const toggleThreadCollapse = useCallback((nodeId: string) => {
-    setCollapsedThreadIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(nodeId)) next.delete(nodeId);
-      else next.add(nodeId);
-      return next;
-    });
-  }, []);
-  // Lets the size-measuring rAF loop read the latest collapsed set without
-  // depending on it directly — same pattern as graphRef above.
-  const collapsedThreadIdsRef = useRef(collapsedThreadIds);
-  useEffect(() => {
-    collapsedThreadIdsRef.current = collapsedThreadIds;
-  }, [collapsedThreadIds]);
-
   const [hoveredGroupId, setHoveredGroupId] = useState<string | null>(null);
   const [measuredSizes, setMeasuredSizes] = useState<
     Record<string, { width: number; height: number }>
@@ -475,13 +541,31 @@ export function CanvasScreen({
     });
   }, []);
 
-  const handleOptionPick = useCallback(
-    async (nodeId: string, choiceId: string) => {
+  // Clicking an option card just changes which one is picked — no async
+  // work, no commitment yet (see lib/mockAI.ts's getOptionResponse doc
+  // comment: changing a selection is not a note). `picked` lives on the
+  // node's own data, not local component state, so a `refine_in_place` note
+  // on the choice card can clear it when the option set regenerates.
+  const handleSelectOption = useCallback((nodeId: string, index: number) => {
+    setGraph((g) => ({
+      ...g,
+      nodes: g.nodes.map((n) => (n.id === nodeId ? { ...n, picked: index } : n)),
+    }));
+  }, []);
+
+  const handleConfirmOption = useCallback(
+    async (nodeId: string) => {
       const node = graph.nodes.find((n) => n.id === nodeId);
-      if (!node) return;
+      if (!node || node.picked == null) return;
+      // A choice card holds at most one live branch at a time — confirming a
+      // (possibly different) option discards whatever was previously built
+      // on this card, the same hard-removal treatment flip() already gives
+      // an abandoned framing, so the two ways of branching from a choice
+      // card can't both leave a card live at once.
+      const toRemove = collectDescendantIds(nodeId, graph.nodes);
       setPendingNodeIds((prev) => new Set(prev).add(nodeId));
       const { nodes: newNodes, edges: newEdges } = await withMinDuration(
-        getOptionResponse(node, choiceId, feedbackContext),
+        getOptionResponse(node, node.picked, feedbackContext),
         ACTION_LOADING_MS
       );
       // getOptionResponse always returns the picked branch first, with its
@@ -491,7 +575,10 @@ export function CanvasScreen({
       // own pushback, not something the user chose, so it stays unselected
       // until the user picks (prefers) it instead.
       const carriedNodes = newNodes.map((n, i) => (i === 0 ? { ...n, selected: true } : n));
-      setGraph((g) => ({ nodes: [...g.nodes, ...carriedNodes], edges: [...g.edges, ...newEdges] }));
+      setGraph((g) => ({
+        nodes: [...g.nodes.filter((n) => !toRemove.has(n.id)), ...carriedNodes],
+        edges: [...g.edges.filter((e) => !toRemove.has(e.target)), ...newEdges],
+      }));
       for (const newNode of newNodes) {
         if (newNode.groupId === node.groupId) carryNodeOffset(nodeId, newNode.id);
       }
@@ -504,75 +591,242 @@ export function CanvasScreen({
     [graph, feedbackContext, carryNodeOffset]
   );
 
-  // A comment is the user's own words, not AI output — appended instantly,
-  // synchronously, no mock delay (see canvas-screen.tsx's live-chat design:
-  // your own message should never wait on a fake network round-trip).
-  // Inherits the parent's groupId — a comment stays in the SAME path/frame
-  // as the card it was left on, per the confirmed design.
-  const addCommentNode = useCallback(
-    (parentId: string, text: string, quotedText: string): CanvasNodeData | null => {
-      const parent = graph.nodes.find((n) => n.id === parentId);
-      if (!parent) return null;
-      const comment: CanvasNodeData = {
-        id: makeCommentId(),
-        kind: "comment",
-        title: "Comment",
-        body: quotedText ? `Commenting on "${quotedText}": ${text}` : text,
-        parentId,
-        depth: parent.depth + 1,
-        selected: false,
-        groupId: parent.groupId,
-        groupLabel: parent.groupLabel,
-      };
-      setGraph((g) => ({
-        nodes: [...g.nodes, comment],
-        edges: [
-          ...g.edges,
-          { id: `e-${parentId}-${comment.id}`, source: parentId, target: comment.id },
-        ],
-      }));
-      carryNodeOffset(parentId, comment.id);
-      return comment;
-    },
-    [graph, carryNodeOffset]
-  );
+  /**
+   * Context-note submission — the classifier decides between the two
+   * intents, and each combination of card type × intent maps onto a
+   * different mock call (see lib/mockAI.ts). This is the ONE place that
+   * decision fans out from, so the fan-out itself never has to be
+   * re-derived at any call site.
+   */
+  const handleSubmitNote = useCallback(
+    async (nodeId: string, rawNote: string) => {
+      const note = rawNote.trim();
+      if (!note) return;
+      const node = graph.nodes.find((n) => n.id === nodeId);
+      if (!node) return;
 
-  // The AI's reaction to a comment — a suggestion + counter-argument pair
-  // as the comment node's own children (see mockAI.ts's getCommentResponse).
-  // This is the one part of submitting a comment that's still async/mocked,
-  // so it gets its own pending state (shown on the comment card itself,
-  // whose own content is already final) instead of blocking the comment
-  // from appearing.
-  const generateCommentResponse = useCallback(
-    async (commentNode: CanvasNodeData) => {
-      setPendingNodeIds((prev) => new Set(prev).add(commentNode.id));
-      const { nodes: newNodes, edges: newEdges } = await withMinDuration(
-        getCommentResponse(commentNode, feedbackContext),
-        ACTION_LOADING_MS
-      );
-      setGraph((g) => ({ nodes: [...g.nodes, ...newNodes], edges: [...g.edges, ...newEdges] }));
-      for (const newNode of newNodes) {
-        if (newNode.groupId === commentNode.groupId) carryNodeOffset(commentNode.id, newNode.id);
+      const intent = classifyNote(note);
+      setPendingNodeIds((prev) => new Set(prev).add(nodeId));
+
+      if (node.cardType === "choice") {
+        if (intent === "branch_new_direction") {
+          // Skip the question entirely — the user's own words become the
+          // accepted framing (echoed back, not silently swapped in — see
+          // rx-node.tsx's userFraming block). The choice card itself keeps
+          // whatever revision/options it already had; only userFraming and
+          // origin change on it. Same one-live-branch invariant as
+          // handleConfirmOption — discard whatever was built on a prior pick
+          // or a prior framing before adding this one.
+          const toRemove = collectDescendantIds(nodeId, graph.nodes);
+          setGraph((g) => ({
+            nodes: g.nodes
+              .filter((n) => !toRemove.has(n.id))
+              .map((n) =>
+                n.id === nodeId
+                  ? { ...n, userFraming: note, origin: { intent, note } as CardOrigin, picked: null }
+                  : n
+              ),
+            edges: g.edges.filter((e) => !toRemove.has(e.target)),
+          }));
+          const { node: newNode, edge: newEdge } = await withMinDuration(
+            branchFromChoiceFraming(node, note, feedbackContext),
+            ACTION_LOADING_MS
+          );
+          const carried: CanvasNodeData = {
+            ...newNode,
+            selected: newNode.kind !== "clarifying-question",
+          };
+          setGraph((g) => ({ nodes: [...g.nodes, carried], edges: [...g.edges, newEdge] }));
+          carryNodeOffset(nodeId, carried.id);
+        } else {
+          const newOptions = await withMinDuration(
+            refineChoiceOptions(node, note, feedbackContext),
+            ACTION_LOADING_MS
+          );
+          setGraph((g) => ({
+            ...g,
+            nodes: g.nodes.map((n) => (n.id === nodeId ? pushChoiceRevision(n, newOptions, note) : n)),
+          }));
+        }
+      } else {
+        if (intent === "branch_new_direction") {
+          const { node: newNode, edge: newEdge } = await withMinDuration(
+            branchFromNote(node, note, feedbackContext),
+            ACTION_LOADING_MS
+          );
+          const carried: CanvasNodeData = {
+            ...newNode,
+            selected: newNode.kind !== "clarifying-question",
+          };
+          setGraph((g) => ({ nodes: [...g.nodes, carried], edges: [...g.edges, newEdge] }));
+          carryNodeOffset(nodeId, carried.id);
+        } else {
+          const { title, body } = await withMinDuration(
+            refinePlainCard(node, note, feedbackContext),
+            ACTION_LOADING_MS
+          );
+          setGraph((g) => ({
+            ...g,
+            nodes: g.nodes.map((n) => (n.id === nodeId ? pushPlainRevision(n, title, body, note) : n)),
+          }));
+        }
       }
+
       setPendingNodeIds((prev) => {
         const next = new Set(prev);
-        next.delete(commentNode.id);
+        next.delete(nodeId);
         return next;
       });
     },
-    [feedbackContext, carryNodeOffset]
+    [graph, feedbackContext, carryNodeOffset]
   );
 
-  const handleSubmitComment = useCallback(
-    (rawText: string) => {
-      if (!commentBox) return;
-      const text = rawText.trim();
-      if (!text) return;
-      const comment = addCommentNode(commentBox.nodeId, text, commentBox.quotedText);
-      setCommentBox(null);
-      if (comment) generateCommentResponse(comment);
+  // "Restore this version" — lives inside the origin strip's `see note`
+  // panel, right next to the previous version it's restoring. A plain
+  // revert: no branching, no note re-application, unlike flip() below.
+  const handleRestoreVersion = useCallback((nodeId: string) => {
+    setGraph((g) => ({
+      ...g,
+      nodes: g.nodes.map((n) => (n.id === nodeId ? restoreVersion(n) : n)),
+    }));
+  }, []);
+
+  /**
+   * "I didn't mean that" — re-runs the SAME note under the OPPOSITE
+   * interpretation. Never a plain undo: every press re-applies the note, so
+   * it always produces a fresh side effect (a restored revision that then
+   * branches, or a removed branch that then revises its parent) rather than
+   * walking backward through history.
+   */
+  const handleFlip = useCallback(
+    async (nodeId: string) => {
+      const node = graph.nodes.find((n) => n.id === nodeId);
+      if (!node) return;
+
+      // A choice card that took the user's own framing — undo that,
+      // regenerate options instead. The continuation built on the
+      // abandoned framing is removed outright (there's no revision to hang
+      // staleness off of here, since taking a framing doesn't bump
+      // activeRevision).
+      if (node.cardType === "choice" && node.userFraming != null) {
+        const note = node.userFraming;
+        const toRemove = collectDescendantIds(nodeId, graph.nodes);
+        setPendingNodeIds((prev) => new Set(prev).add(nodeId));
+        setGraph((g) => ({
+          nodes: g.nodes
+            .filter((n) => !toRemove.has(n.id))
+            .map((n) => (n.id === nodeId ? { ...n, userFraming: null, origin: null, picked: null } : n)),
+          edges: g.edges.filter((e) => !toRemove.has(e.target)),
+        }));
+        const newOptions = await withMinDuration(
+          refineChoiceOptions(node, note, feedbackContext),
+          ACTION_LOADING_MS
+        );
+        setGraph((g) => ({
+          ...g,
+          nodes: g.nodes.map((n) => (n.id === nodeId ? pushChoiceRevision(n, newOptions, note) : n)),
+        }));
+        setPendingNodeIds((prev) => {
+          const next = new Set(prev);
+          next.delete(nodeId);
+          return next;
+        });
+        return;
+      }
+
+      // This card was refined in place — restore the previous revision,
+      // then branch from it using the same note under the opposite
+      // interpretation.
+      if (node.origin?.intent === "refine_in_place") {
+        const note = node.origin.note;
+        setPendingNodeIds((prev) => new Set(prev).add(nodeId));
+        const restored = restoreVersion(node);
+        setGraph((g) => ({
+          ...g,
+          nodes: g.nodes.map((n) => (n.id === nodeId ? restored : n)),
+        }));
+
+        if (restored.cardType === "choice") {
+          setGraph((g) => ({
+            ...g,
+            nodes: g.nodes.map((n) =>
+              n.id === nodeId
+                ? { ...n, userFraming: note, origin: { intent: "branch_new_direction", note }, picked: null }
+                : n
+            ),
+          }));
+          const { node: newNode, edge: newEdge } = await withMinDuration(
+            branchFromChoiceFraming(restored, note, feedbackContext),
+            ACTION_LOADING_MS
+          );
+          const carried: CanvasNodeData = {
+            ...newNode,
+            selected: newNode.kind !== "clarifying-question",
+          };
+          setGraph((g) => ({ nodes: [...g.nodes, carried], edges: [...g.edges, newEdge] }));
+          carryNodeOffset(nodeId, carried.id);
+        } else {
+          const { node: newNode, edge: newEdge } = await withMinDuration(
+            branchFromNote(restored, note, feedbackContext),
+            ACTION_LOADING_MS
+          );
+          const carried: CanvasNodeData = {
+            ...newNode,
+            selected: newNode.kind !== "clarifying-question",
+          };
+          setGraph((g) => ({ nodes: [...g.nodes, carried], edges: [...g.edges, newEdge] }));
+          carryNodeOffset(nodeId, carried.id);
+        }
+        setPendingNodeIds((prev) => {
+          const next = new Set(prev);
+          next.delete(nodeId);
+          return next;
+        });
+        return;
+      }
+
+      // This card IS a branch itself — remove it (and anything the user
+      // built further on it), then revise the PARENT using the same note.
+      if (node.origin?.intent === "branch_new_direction" && node.parentId) {
+        const note = node.origin.note;
+        const parentId = node.parentId;
+        const parent = graph.nodes.find((n) => n.id === parentId);
+        if (!parent) return;
+        const toRemove = collectDescendantIds(nodeId, graph.nodes);
+        toRemove.add(nodeId);
+        setPendingNodeIds((prev) => new Set(prev).add(parentId));
+        setGraph((g) => ({
+          nodes: g.nodes.filter((n) => !toRemove.has(n.id)),
+          edges: g.edges.filter((e) => !toRemove.has(e.target) && !toRemove.has(e.source)),
+        }));
+
+        if (parent.cardType === "choice") {
+          const newOptions = await withMinDuration(
+            refineChoiceOptions(parent, note, feedbackContext),
+            ACTION_LOADING_MS
+          );
+          setGraph((g) => ({
+            ...g,
+            nodes: g.nodes.map((n) => (n.id === parentId ? pushChoiceRevision(n, newOptions, note) : n)),
+          }));
+        } else {
+          const { title, body } = await withMinDuration(
+            refinePlainCard(parent, note, feedbackContext),
+            ACTION_LOADING_MS
+          );
+          setGraph((g) => ({
+            ...g,
+            nodes: g.nodes.map((n) => (n.id === parentId ? pushPlainRevision(n, title, body, note) : n)),
+          }));
+        }
+        setPendingNodeIds((prev) => {
+          const next = new Set(prev);
+          next.delete(parentId);
+          return next;
+        });
+      }
     },
-    [commentBox, addCommentNode, generateCommentResponse]
+    [graph, feedbackContext, carryNodeOffset]
   );
 
   // Accept-and-continue: appends a brand new child node one depth below the
@@ -613,32 +867,6 @@ export function CanvasScreen({
     [graph, feedbackContext, carryNodeOffset]
   );
 
-  const openComment = useCallback((nodeId: string, quotedText: string = "") => {
-    setCommentBox({ nodeId, quotedText });
-  }, []);
-
-  const closeComment = useCallback(() => {
-    setCommentBox(null);
-  }, []);
-
-  const handleMouseUp = useCallback(() => {
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed || sel.toString().trim().length === 0) return;
-    const anchorNode = sel.anchorNode;
-    const anchorEl =
-      anchorNode instanceof Element ? anchorNode : anchorNode?.parentElement ?? null;
-    const nodeEl = anchorEl?.closest("[data-node-id]");
-    if (!nodeEl) return;
-    const nodeId = nodeEl.getAttribute("data-node-id");
-    if (!nodeId) return;
-    // Source is the user's own text, not commentable (see rx-node.tsx) — a
-    // text selection there should stay a plain copy-paste selection, not
-    // open the comment box.
-    const node = graph.nodes.find((n) => n.id === nodeId);
-    if (!node || node.kind === "source") return;
-    openComment(nodeId, sel.toString().trim());
-  }, [graph, openComment]);
-
   const hasSelectedNode = graph.nodes.some((n) => n.selected);
   const selectedCount = graph.nodes.filter((n) => n.selected).length;
 
@@ -648,7 +876,7 @@ export function CanvasScreen({
   // (which changes groupOffsets/nodeOffsets on every pointer move) never
   // recreates these `data` objects and retriggers their mount-in animation.
   useEffect(() => {
-    const { visibleNodes, byId } = resolveVisibleGraph(graph, collapsedThreadIds);
+    const { visibleNodes, byId } = resolveVisibleGraph(graph);
     const rawPositions = layoutNodes(visibleNodes, nodeRowHeightsRef.current);
     const visibleById = new Map(visibleNodes.map((n) => [n.id, n]));
     // Cards whose id shows up as someone else's (visible) parentId already
@@ -677,7 +905,6 @@ export function CanvasScreen({
         original.kind === "clarifying-question" ? getPathAncestors(n.parentId, visibleById) : null;
       const pathSelectedCount = pathAncestors ? pathAncestors.filter((a) => a.selected).length : selectedCount;
       const pathFeedback = pathAncestors ? deriveFeedbackContext(pathAncestors) : undefined;
-      const isThreadCollapsed = original.kind === "comment" && collapsedThreadIds.has(n.id);
       return {
         id: n.id,
         type: "rxNode",
@@ -688,22 +915,18 @@ export function CanvasScreen({
           predecessor,
           hasContinuation: continuedIds.has(n.id),
           onSelectToggle: handleSelectToggle,
-          onOptionPick: handleOptionPick,
+          onSelectOption: handleSelectOption,
+          onConfirmOption: handleConfirmOption,
           onFeedbackToggle: handleFeedbackToggle,
-          onOpenComment: openComment,
           onPreferOption: handlePreferOption,
+          onSubmitNote: handleSubmitNote,
+          onRestoreVersion: handleRestoreVersion,
+          onFlip: handleFlip,
+          downstreamCount: countVisibleDownstream(n.id, visibleNodes),
           onViewReport: () => onFinalizeRef.current(graph),
           selectedCount: pathSelectedCount,
           pathFeedback,
           onGroupHoverChange: setHoveredGroupId,
-          commentOpen: commentBox?.nodeId === n.id,
-          commentQuotedText: commentBox?.nodeId === n.id ? commentBox.quotedText : "",
-          onSubmitComment: handleSubmitComment,
-          onCloseComment: closeComment,
-          threadIndentLevel: commentIndentLevel(original, byId),
-          isThreadCollapsed,
-          collapsedReplyCount: isThreadCollapsed ? countDescendants(n.id, graph.nodes) : 0,
-          onToggleThreadCollapse: toggleThreadCollapse,
         } satisfies RxNodeData,
       };
     });
@@ -738,15 +961,13 @@ export function CanvasScreen({
     hasSelectedNode,
     selectedCount,
     handleSelectToggle,
-    handleOptionPick,
+    handleSelectOption,
+    handleConfirmOption,
     handleFeedbackToggle,
-    openComment,
     handlePreferOption,
-    commentBox,
-    handleSubmitComment,
-    closeComment,
-    collapsedThreadIds,
-    toggleThreadCollapse,
+    handleSubmitNote,
+    handleRestoreVersion,
+    handleFlip,
     setRfNodes,
     setRfEdges,
   ]);
@@ -792,7 +1013,7 @@ export function CanvasScreen({
       // into the DOM yet) plus breathing room, floored so even a short card
       // never feels cramped. Kept per-node (not per-depth) so one branch's
       // tall card never affects another branch's spacing.
-      const { visibleNodes } = resolveVisibleGraph(graphRef.current, collapsedThreadIdsRef.current);
+      const { visibleNodes } = resolveVisibleGraph(graphRef.current);
       const targetByNode: Record<string, number> = {};
       for (const n of visibleNodes) {
         const height = sizesThisTick[n.id]?.height ?? CARD_HEIGHT_FALLBACK;
@@ -826,7 +1047,7 @@ export function CanvasScreen({
   // plus geometry/hover state on the groupFrame nodes. It's also the sole
   // writer of basePositionsRef, the un-offset anchor drag math reads from.
   useEffect(() => {
-    const { visibleNodes } = resolveVisibleGraph(graph, collapsedThreadIds);
+    const { visibleNodes } = resolveVisibleGraph(graph);
     const rawPositions = layoutNodes(visibleNodes, nodeRowHeights);
 
     // A newly-graduated (or deeply-grown) path can structurally land where
@@ -920,7 +1141,6 @@ export function CanvasScreen({
     measuredSizes,
     nodeRowHeights,
     hoveredGroupId,
-    collapsedThreadIds,
     setRfNodes,
   ]);
 
@@ -970,7 +1190,7 @@ export function CanvasScreen({
   );
 
   return (
-    <div className="flex h-full flex-col bg-background" onMouseUp={handleMouseUp}>
+    <div className="flex h-full flex-col bg-background">
       <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-4 py-2.5">
         <div className="flex flex-wrap items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element -- static local SVG, no optimization needed */}

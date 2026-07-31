@@ -4,16 +4,13 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { Handle, Position, type NodeProps } from "reactflow";
 import {
   ChevronRight,
-  ChevronDown,
   Check,
   GripVertical,
-  MessageSquare,
   ThumbsUp,
   ThumbsDown,
   ArrowRight,
   ArrowDown,
   Quote,
-  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,6 +28,7 @@ import { TypewriterText } from "./typewriter-text";
 import { useSoftness } from "./softness-context";
 import { useSourceStyle } from "./source-style-context";
 import { getSquirclePath } from "@/lib/squircle";
+import { classifyNote } from "@/lib/mockAI";
 import AITextLoading from "@/components/kokonutui/ai-text-loading";
 import type { CanvasNodeData, FeedbackContext, HighlightSpan } from "@/lib/types";
 
@@ -51,40 +49,26 @@ export interface RxNodeData {
    *  same either way. */
   hasContinuation: boolean;
   onSelectToggle: (nodeId: string) => void;
-  onOptionPick: (nodeId: string, choiceId: string) => void;
+  /** Clicking an option card — just changes which one is picked, no async
+   *  work yet (see canvas-screen.tsx's handleSelectOption). */
+  onSelectOption: (nodeId: string, index: number) => void;
+  /** "Select and continue" — commits the currently picked option. */
+  onConfirmOption: (nodeId: string) => void;
   onFeedbackToggle: (nodeId: string, type: "like" | "dislike") => void;
-  /** Opens the comment box on this card — `quotedText` is set when
-   *  triggered by a text selection, omitted for the plain toolbar icon. */
-  onOpenComment: (nodeId: string, quotedText?: string) => void;
   onPreferOption: (nodeId: string) => void;
-  /** True while THIS card has its comment box open — at most one card on
-   *  the canvas has this true at once (see canvas-screen.tsx's
-   *  CommentBoxState). Submitting appends a real "comment" child node
-   *  instantly and closes the box — there's no multi-turn "thread" state to
-   *  track here anymore; continuing a specific conversation just means
-   *  opening the box again on whichever card (the original, or one of the
-   *  comment/AI cards it produced) the user wants to keep talking to. */
-  commentOpen: boolean;
-  /** Selected-text quote to show above the draft. */
-  commentQuotedText: string;
-  onSubmitComment: (text: string) => void;
-  onCloseComment: () => void;
-  /** Reddit-style comment threading — how many "comment" ancestors this
-   *  node has (see lib/layout.ts's commentIndentLevel). 0 for anything on
-   *  the main suggestion path; climbs by one each time a NEW comment
-   *  appears deeper in the chain (an AI reply inherits its parent comment's
-   *  level rather than adding its own). Drives the left indent + thread
-   *  guide line so a comment conversation reads visually distinct from the
-   *  main path, without changing how positions are computed elsewhere. */
-  threadIndentLevel: number;
-  /** True while this "comment" node's own replies are collapsed (see
-   *  canvas-screen.tsx's collapsedThreadIds) — every other kind ignores
-   *  this, only a comment can be the head of a collapsible thread. */
-  isThreadCollapsed: boolean;
-  /** How many descendants are currently hidden by the collapse above —
-   *  shown in the "N replies" summary row. 0 when not collapsed. */
-  collapsedReplyCount: number;
-  onToggleThreadCollapse: (nodeId: string) => void;
+  /** Context-note submission — the classifier decides refine vs branch;
+   *  see canvas-screen.tsx's handleSubmitNote. */
+  onSubmitNote: (nodeId: string, note: string) => void;
+  /** "Restore this version" inside the `see note` panel — a plain revert,
+   *  no branching, no note re-application. */
+  onRestoreVersion: (nodeId: string) => void;
+  /** "I didn't mean that" — always visible on the origin strip, re-applies
+   *  the same note under the opposite interpretation. */
+  onFlip: (nodeId: string) => void;
+  /** How many currently-visible cards sit downstream of this one — powers
+   *  the context box's disclosure line, scaled to the actual cost of a
+   *  `refine_in_place` instead of a one-size-fits-all dialog. */
+  downstreamCount: number;
   /** For clarifying-question nodes (depth cap reached) — a shortcut straight to the finalize dashboard.
    *  Reaching this card at all means the user preferred their way here, so
    *  its "View report" button is never gated on any selected/finalize
@@ -110,7 +94,6 @@ const KIND_LABEL: Record<CanvasNodeData["kind"], string> = {
   "counter-argument": "Counter-argument",
   revision: "Revision",
   "clarifying-question": "Clarifying question",
-  comment: "Comment",
 };
 
 const SELECTABLE_KINDS: CanvasNodeData["kind"][] = [
@@ -118,12 +101,6 @@ const SELECTABLE_KINDS: CanvasNodeData["kind"][] = [
   "counter-argument",
   "revision",
 ];
-
-// Comment cards join the selectable kinds for commentability (you can keep
-// a conversation going on your own comment, same as any AI card) but stay
-// out of SELECTABLE_KINDS on purpose — see canSelect below, a comment is
-// never itself "preferred" into the report.
-const COMMENTABLE_KINDS: CanvasNodeData["kind"][] = [...SELECTABLE_KINDS, "comment"];
 
 function renderBody(body: string, highlights?: HighlightSpan[]): ReactNode {
   if (!highlights || highlights.length === 0) return body;
@@ -155,40 +132,22 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
     predecessor,
     hasContinuation,
     onSelectToggle,
-    onOptionPick,
+    onSelectOption,
+    onConfirmOption,
     onFeedbackToggle,
-    onOpenComment,
     onPreferOption,
+    onSubmitNote,
+    onRestoreVersion,
+    onFlip,
+    downstreamCount,
     onViewReport,
     selectedCount,
     pathFeedback,
     onGroupHoverChange,
-    commentOpen,
-    commentQuotedText,
-    onSubmitComment,
-    onCloseComment,
-    threadIndentLevel,
-    isThreadCollapsed,
-    collapsedReplyCount,
-    onToggleThreadCollapse,
   } = data;
 
-  // Local, uncontrolled draft text — kept in this component (not lifted to
-  // canvas-screen.tsx) so typing doesn't retrigger the parent's node/edge
-  // rebuild effect on every keystroke. Resets whenever the thread box closes,
-  // whether the user closed it or another card's thread took over (see
-  // canvas-screen.tsx's CommentThread — only one is open at a time).
-  const [commentDraft, setCommentDraft] = useState("");
-  // Reset during render (not an effect) when the box just closed — the
-  // sanctioned "adjust state while rendering" pattern for state derived from
-  // a prop transition, avoiding an extra cascading render.
-  const [prevCommentOpen, setPrevCommentOpen] = useState(commentOpen);
-  if (commentOpen !== prevCommentOpen) {
-    setPrevCommentOpen(commentOpen);
-    if (!commentOpen) setCommentDraft("");
-  }
-
   const isClarifying = nodeData.kind === "clarifying-question";
+  const isChoice = nodeData.cardType === "choice";
   // The conclusion cites the actual theme this path leaned toward/away
   // from, when there is one, instead of always repeating the same generic
   // line — falls back to nodeData.title (the generic sentence) when the
@@ -204,15 +163,15 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
           ? `You steered away from "${pathDislikedTheme}" on this thread. Here's what that means for your report.`
           : nodeData.title;
 
-  // Cards with an option set branch exclusively through their own "Select
-  // and continue" picker — the wrapping card itself isn't independently
-  // selectable, that would be a redundant second way to do the same thing.
-  const canSelect = SELECTABLE_KINDS.includes(nodeData.kind) && !nodeData.optionSet;
-  // Comment cards can be commented on too (that's how a live conversation
-  // goes deeper — see canvas-screen.tsx's addCommentNode), even though
-  // they're never selectable for the report.
-  const canComment = COMMENTABLE_KINDS.includes(nodeData.kind) && !nodeData.optionSet;
-  const isComment = nodeData.kind === "comment";
+  // A choice card branches exclusively through its own picker (or, once the
+  // user's own framing is taken, isn't independently "preferred" either) —
+  // the wrapping card itself isn't a redundant second way to do the same
+  // thing.
+  const canSelect = SELECTABLE_KINDS.includes(nodeData.kind) && !isChoice;
+  // Suggestion/counter-argument cards carry a context input; source and the
+  // terminal clarifying-question card don't take notes at all.
+  const canTakeNote = SELECTABLE_KINDS.includes(nodeData.kind);
+  const eyebrowLabel = KIND_LABEL[nodeData.kind];
 
   const isSource = nodeData.kind === "source";
   const sourceStyle = useSourceStyle();
@@ -289,36 +248,6 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
     return () => cancelAnimationFrame(raf);
   }, [softnessRadius, smoothing, isSource, sourceStyle, isClarifying]);
 
-  function handleOpenComment() {
-    onOpenComment(id);
-  }
-
-  // Reddit-style collapsed comment: replaces the whole card with a single
-  // "N replies" row. The node itself never leaves the graph — only its
-  // descendants drop out of the visible set (see canvas-screen.tsx's
-  // resolveVisibleGraph) — so re-expanding just brings them straight back.
-  if (isThreadCollapsed) {
-    return (
-      <div data-node-id={id} className="group/node relative">
-        {threadIndentLevel > 0 && (
-          <div
-            className="pointer-events-none absolute top-0 -left-3 h-full border-l-2 border-dashed border-muted-foreground/25"
-            aria-hidden="true"
-          />
-        )}
-        <button
-          type="button"
-          onClick={() => onToggleThreadCollapse(id)}
-          className="nodrag flex items-center gap-1.5 rounded-[var(--radius-control)] border border-dashed border-border bg-muted/40 px-3 py-1.5 text-[length:var(--text-label)] text-muted-foreground hover:border-foreground/40 hover:text-foreground"
-        >
-          <ChevronRight className="h-3 w-3" />
-          <MessageSquare className="h-3 w-3" />
-          {collapsedReplyCount} {collapsedReplyCount === 1 ? "reply" : "replies"}
-        </button>
-      </div>
-    );
-  }
-
   // Click anywhere on the card to toggle "Select" — except on a nested
   // button (the option picker, the collapsible trigger, "Prefer this option"...).
   function handleCardClick(e: React.MouseEvent<HTMLDivElement>) {
@@ -326,6 +255,67 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
     if ((e.target as HTMLElement).closest("button")) return;
     onSelectToggle(id);
   }
+
+  // ---------------------------------------------------------------------
+  // Context note — local draft + "see note" panel toggle. Uncontrolled
+  // draft text kept here (not lifted to canvas-screen.tsx) so typing
+  // doesn't retrigger the parent's node/edge rebuild effect on every
+  // keystroke.
+  // ---------------------------------------------------------------------
+  const [noteDraft, setNoteDraft] = useState("");
+  const [noteDetailOpen, setNoteDetailOpen] = useState(false);
+  // The loading label is decided once, at submit time, from the note that
+  // was actually sent — `pending` alone doesn't say WHY this card is
+  // pending (it could be "Prefer this option" instead), so this stays null
+  // whenever some other action is what's in flight. Cleared by adjusting
+  // state during render (React's documented pattern for resetting state in
+  // response to a prop change) rather than in an effect, since a
+  // synchronous setState inside an effect body risks a cascading render.
+  const [pendingLabel, setPendingLabel] = useState<string | null>(null);
+  const [prevPending, setPrevPending] = useState(pending);
+  if (pending !== prevPending) {
+    setPrevPending(pending);
+    if (!pending) setPendingLabel(null);
+  }
+
+  function handleSubmitNoteClick() {
+    const text = noteDraft.trim();
+    if (!text) return;
+    const intent = classifyNote(text);
+    const label = isChoice
+      ? intent === "refine_in_place"
+        ? "Rewriting the options…"
+        : "Taking your framing…"
+      : intent === "refine_in_place"
+        ? "Rewriting this card…"
+        : "Opening a new direction…";
+    setPendingLabel(label);
+    onSubmitNote(id, text);
+    setNoteDraft("");
+  }
+
+  const origin = nodeData.origin;
+  const isBranchOrigin = origin?.intent === "branch_new_direction";
+  // Mono/uppercase/tracked — same treatment as the eyebrow below it. This is
+  // a LABEL (what kind of card is this), not an action, and the app already
+  // draws that line consistently (SUGGESTION/COUNTER-ARGUMENT vs. "Prefer
+  // this option"/"Restore this version"). Single words, measured against the
+  // strip's real width alongside the "Not what I meant" action (mono
+  // uppercase costs ~10px/char here): "Options revised" and "Took your
+  // framing" both overflowed the ~176px label budget, so they're shortened
+  // to "Rewritten"/"Reframed" rather than dropping the mono/uppercase
+  // treatment. No "from your note" either way — the note itself is one tap
+  // away via the strip's own toggle.
+  const originLabel = isChoice
+    ? isBranchOrigin
+      ? "Reframed"
+      : "Rewritten"
+    : isBranchOrigin
+      ? "Redirected"
+      : "Revised";
+  const previousRevision = origin
+    ? nodeData.revisions?.find((r) => r.revision === (nodeData.activeRevision ?? 1) - 1)
+    : undefined;
 
   return (
     <div
@@ -335,13 +325,13 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
       onMouseLeave={() => onGroupHoverChange?.(null)}
     >
       {/* Source is the user's own original text, not an AI suggestion —
-          commenting/liking only makes sense on the recommendation/
-          counter-argument nodes that actually drive the mock AI's next
-          response and the dashboard's eventual solution, so Source skips
-          this menu entirely rather than offering an action that doesn't
-          feed into anything. The clarifying-question/conclusion card skips
-          it too — it's a terminal handoff to the report, not one more
-          reaction-worthy suggestion. */}
+          liking only makes sense on the recommendation/counter-argument
+          nodes that actually drive the mock AI's next response and the
+          dashboard's eventual solution, so Source skips this menu entirely
+          rather than offering an action that doesn't feed into anything.
+          The clarifying-question/conclusion card skips it too — it's a
+          terminal handoff to the report, not one more reaction-worthy
+          suggestion. */}
       {!isSource && !isClarifying && (
         <div className="nodrag nopan absolute -top-9 left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-[var(--radius-surface)] border border-border bg-card p-1 opacity-0 shadow-sm transition-opacity group-hover/node:opacity-100">
           <Tooltip>
@@ -374,29 +364,6 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
             </TooltipTrigger>
             <TooltipContent>Dislike</TooltipContent>
           </Tooltip>
-          {/* Comment lives in this same top toolbar as Like/Dislike, not a
-              separate hover affordance below the card — one discoverable
-              place for every per-card reaction. The tooltip doubles as the
-              only explanation that selecting text on the card's body opens
-              this same box pre-quoted with that selection (see
-              handleMouseUp in canvas-screen.tsx). */}
-          {canComment && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={handleOpenComment}
-                  className={cn(
-                    "flex h-6 w-6 items-center justify-center text-muted-foreground hover:text-foreground",
-                    commentOpen && "text-foreground"
-                  )}
-                >
-                  <MessageSquare className="h-3.5 w-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Add comment — or select text on the card to comment on it</TooltipContent>
-            </Tooltip>
-          )}
         </div>
       )}
 
@@ -405,17 +372,6 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
           events. Floats just past the card's right edge, only visible
           while hovering the card itself (not the path). */}
       <GripVertical className="pointer-events-none absolute top-1/2 -right-5 h-4 w-4 -translate-y-1/2 text-muted-foreground opacity-0 transition-opacity group-hover/node:opacity-100" />
-
-      {/* Reddit-style thread guide line — the position shift itself comes
-          from lib/layout.ts's commentIndentLevel (baked into this node's
-          x), this is purely the visual cue that a comment conversation
-          reads as its own indented side-thread, not more main-path content. */}
-      {threadIndentLevel > 0 && (
-        <div
-          className="pointer-events-none absolute top-0 -left-3 h-full border-l-2 border-dashed border-muted-foreground/25"
-          aria-hidden="true"
-        />
-      )}
 
       <Card
         ref={squircleRef}
@@ -449,7 +405,8 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
           // own py-3 already (matching CardHeader/CardContent's rhythm) —
           // without this, the base py-3 above stacks on top and leaves a
           // plain --card gap above the status zone before it even starts.
-          isClarifying && "py-0"
+          isClarifying && "py-0",
+          !isRail && !isClarifying && "py-4"
         )}
       >
         {isRail && (
@@ -497,7 +454,7 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
                 layout (not CardHeader/CardContent) so it reads as the end
                 of a path, not one more recommendation to weigh. */}
             <div className="border-b border-border bg-primary/10 px-[var(--card-px)] py-3">
-              <div className="mb-1.5 flex items-center gap-1 font-mono text-[9.5px] font-bold tracking-wide text-primary uppercase">
+              <div className="mb-1.5 flex items-center gap-1 font-mono text-[length:var(--text-meta)] font-bold tracking-wide text-primary uppercase">
                 <Check className="h-2.5 w-2.5" />
                 Ready for your report
               </div>
@@ -522,24 +479,100 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
           </>
         ) : (
           <>
+        {/* Origin strip — full-bleed to the card's own edges, sitting above
+            the eyebrow. Primary tint for a revision, cta tint for a new
+            direction. The strip itself is the note-panel toggle (a card is
+            only 320px wide, minus padding — there's no room for a separate
+            "see note" button alongside the label and the recovery action),
+            so only the recovery action ("Not what I meant") sits on the
+            right as an actual button; the rest of the strip is one big
+            toggle. The recovery action never disappears — it's the safety
+            net for classifier error, so it can't be time-limited or hidden
+            behind another interaction. */}
+        {origin && (
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => setNoteDetailOpen((v) => !v)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setNoteDetailOpen((v) => !v);
+              }
+            }}
+            aria-expanded={noteDetailOpen}
+            className={cn(
+              "nodrag -mt-4 mb-3 flex w-full cursor-pointer items-center justify-between gap-2 rounded-t-[var(--radius-card)] px-[var(--card-px)] py-2 text-[length:var(--text-meta)] transition-colors",
+              isBranchOrigin ? "bg-cta/10 hover:bg-cta/15" : "bg-primary/10 hover:bg-primary/15"
+            )}
+          >
+            <span
+              className={cn(
+                "flex min-w-0 items-center gap-1 font-mono font-bold tracking-wide uppercase",
+                isBranchOrigin ? "text-cta" : "text-primary"
+              )}
+            >
+              <span aria-hidden="true">{isBranchOrigin ? "↷" : "↺"}</span>
+              <span className="truncate">{originLabel}</span>
+              <ChevronRight
+                className={cn(
+                  "h-3 w-3 shrink-0 transition-transform duration-200 ease-out",
+                  noteDetailOpen && "rotate-90"
+                )}
+              />
+            </span>
+            <button
+              type="button"
+              className="nodrag shrink-0 text-muted-foreground underline underline-offset-2 hover:text-foreground"
+              onClick={(e) => {
+                e.stopPropagation();
+                onFlip(id);
+              }}
+            >
+              Not what I meant
+            </button>
+          </div>
+        )}
+
+        {origin && noteDetailOpen && (
+          <div
+            className={cn(
+              "-mt-3 mb-3 space-y-2 rounded-b-[var(--radius-card)] border-b border-border px-[var(--card-px)] py-2.5 text-[length:var(--text-meta)] text-muted-foreground",
+              isBranchOrigin ? "bg-cta/5" : "bg-primary/5"
+            )}
+          >
+            <p className="text-foreground italic">&ldquo;{origin.note}&rdquo;</p>
+            {previousRevision && (
+              <div className="space-y-1 border-t border-dashed border-border pt-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-medium">Previous version</p>
+                  <button
+                    type="button"
+                    className="nodrag text-cta underline underline-offset-2 hover:text-foreground"
+                    onClick={() => onRestoreVersion(id)}
+                  >
+                    Restore this version
+                  </button>
+                </div>
+                {isChoice && previousRevision.options ? (
+                  <ul className="space-y-0.5">
+                    {previousRevision.options.map((o, i) => (
+                      <li key={i}>· {o.title}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="whitespace-pre-wrap">{previousRevision.body}</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         <CardHeader className="px-[var(--card-px)]">
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="flex items-center gap-1.5 font-mono text-[length:var(--text-label)] font-bold uppercase tracking-wide text-muted-foreground">
             {isSource && sourceStyle === "quote" && <Quote className="h-3 w-3 shrink-0" />}
-            {isComment && hasContinuation ? (
-              <button
-                type="button"
-                onClick={() => onToggleThreadCollapse(id)}
-                title="Collapse thread"
-                className="nodrag flex items-center gap-1 hover:text-foreground"
-              >
-                <ChevronDown className="h-3 w-3 shrink-0" />
-                <MessageSquare className="h-3 w-3 shrink-0" />
-              </button>
-            ) : (
-              isComment && <MessageSquare className="h-3 w-3 shrink-0" />
-            )}
-            {KIND_LABEL[nodeData.kind]}
+            {eyebrowLabel}
           </CardTitle>
           <div className="flex items-center gap-1.5">
             {isSource && sourceStyle === "stamp" && (
@@ -547,9 +580,9 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
                 Your words
               </Badge>
             )}
-            {nodeData.version && nodeData.version > 1 && (
+            {nodeData.activeRevision != null && nodeData.activeRevision > 1 && (
               <span className="font-mono text-[length:var(--text-meta)] tabular-nums text-muted-foreground">
-                v{nodeData.version}
+                rev {nodeData.activeRevision}
               </span>
             )}
             {hasContinuation && (
@@ -560,13 +593,13 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
             )}
           </div>
         </div>
-        <p className="text-sm font-semibold text-foreground">{nodeData.title}</p>
+        <p className="text-base font-semibold text-foreground">{nodeData.title}</p>
       </CardHeader>
 
       <CardContent className="space-y-3 px-[var(--card-px)]">
         <p
           data-node-id={id}
-          className="nodrag cursor-text text-sm whitespace-pre-wrap text-foreground select-text"
+          className="nodrag cursor-text text-base whitespace-pre-wrap text-foreground select-text"
         >
           {isSource ? (
             sourceStyle === "quote" ? (
@@ -576,24 +609,32 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
             ) : (
               renderBody(nodeData.body, nodeData.highlights)
             )
-          ) : isComment ? (
-            // Your own words appear instantly, already complete — replaying
-            // them through the typewriter reveal (built for AI-authored
-            // text streaming in) would look like the app is re-typing
-            // something you already typed.
-            nodeData.body
           ) : (
             <TypewriterText text={nodeData.body} />
           )}
         </p>
 
-        {nodeData.optionSet && (
+        {isChoice && nodeData.userFraming ? (
+          // The choice card took the user's own words as the answer —
+          // this is the visible acceptance echo (never silent): it
+          // confirms the system understood correctly, and it's what
+          // "I didn't mean that" operates on if it didn't.
+          <div className="rounded-[var(--radius-surface)] border border-primary bg-primary/10 px-3 py-2.5">
+            <p className="mb-1 font-mono text-[length:var(--text-meta)] font-bold tracking-wide text-primary uppercase">
+              Your own framing — taken as the answer
+            </p>
+            <p className="text-sm text-foreground italic">&ldquo;{nodeData.userFraming}&rdquo;</p>
+          </div>
+        ) : isChoice && nodeData.question && nodeData.options ? (
           <OptionPicker
-            optionSet={nodeData.optionSet}
+            question={nodeData.question}
+            options={nodeData.options}
+            picked={nodeData.picked ?? null}
             disabled={pending}
-            onPick={(choiceId) => onOptionPick(id, choiceId)}
+            onSelectOption={(index) => onSelectOption(id, index)}
+            onConfirm={() => onConfirmOption(id)}
           />
-        )}
+        ) : null}
 
         {predecessor && (
           <Collapsible>
@@ -609,12 +650,11 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
           </Collapsible>
         )}
 
-        {/* Option-set cards skip this footer entirely — OptionPicker
-            renders its own "Select and continue" action row already, and
-            keeping this one too left a second, empty trailing row below
-            it, throwing the button out of alignment with every other
-            card's own action button. */}
-        {!nodeData.optionSet && (
+        {/* Choice cards skip this footer entirely — the picker (or the
+            framing echo) renders its own action, and a card no longer
+            showing either isn't independently "preferred" into the
+            report. */}
+        {!isChoice && (
           <div className="flex items-center justify-between pt-1">
             {canSelect ? (
               <div className="flex items-center gap-2">
@@ -639,18 +679,66 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
                   )}
                 </Button>
               </div>
-            ) : pending ? (
-              // Comment cards have no "Prefer" button, but still show the
-              // same shimmer while the AI's reaction to this comment
-              // (a suggestion/counter-argument pair) is being drafted —
-              // see canvas-screen.tsx's generateCommentResponse.
+            ) : (
+              <span />
+            )}
+          </div>
+        )}
+
+        {/* The context note — always visible, never a toggle-opened box.
+            The label itself is what tells the user this is a correction
+            channel, not a comment box (see lib/mockAI.ts's classifyNote
+            doc comment for the two intents this feeds). */}
+        {canTakeNote && (
+          <div className="space-y-2 border-t border-dashed border-border pt-3">
+            {pending && pendingLabel ? (
               <AITextLoading
-                texts={CARD_LOADING_STAGES}
+                texts={[pendingLabel, pendingLabel]}
                 interval={700}
                 className="text-[length:var(--text-label)] text-muted-foreground"
               />
             ) : (
-              <span />
+              <>
+                <p className="text-[length:var(--text-meta)] text-muted-foreground">
+                  {isChoice
+                    ? "None of these fit? Tell me how you'd put it."
+                    : "Not quite right? Tell me what I'm missing."}
+                  {downstreamCount > 0 && (
+                    <span className="mt-0.5 block text-muted-foreground/70">
+                      Revising this will replace the {downstreamCount} card
+                      {downstreamCount === 1 ? "" : "s"} below it.
+                    </span>
+                  )}
+                </p>
+                <Textarea
+                  value={noteDraft}
+                  onChange={(e) => setNoteDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                      e.preventDefault();
+                      handleSubmitNoteClick();
+                    }
+                  }}
+                  placeholder={
+                    isChoice
+                      ? "e.g. none of these — priorities change mid-sprint from outside"
+                      : "e.g. we're a team of two, 3 is too many"
+                  }
+                  rows={2}
+                  disabled={pending}
+                  className="nodrag"
+                />
+                <div className="flex justify-end">
+                  <Button
+                    size="sm"
+                    className="nodrag"
+                    disabled={!noteDraft.trim() || pending}
+                    onClick={handleSubmitNoteClick}
+                  >
+                    Send
+                  </Button>
+                </div>
+              </>
             )}
           </div>
         )}
@@ -659,60 +747,6 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
         )}
         </div>
       </Card>
-
-      {/* Opened only from the top toolbar's comment icon (or a text
-          selection, see canvas-screen.tsx's handleMouseUp) — rendered in
-          normal flow (not absolutely positioned like the toolbar above) so
-          the expanded box actually grows this node's measured height and
-          pushes anything below it down (see canvas-screen.tsx's polling
-          size-measure effect). */}
-      {canComment && commentOpen && (
-        <div className="nodrag nopan mt-2 w-80 space-y-2 rounded-[var(--radius-card)] border border-border bg-card p-3 shadow-sm">
-          <div className="flex items-center justify-between">
-            <p className="flex items-center gap-1 font-mono text-[length:var(--text-meta)] uppercase tracking-wide text-muted-foreground">
-              <MessageSquare className="h-3 w-3" />
-              Comment
-            </p>
-            <button
-              type="button"
-              onClick={onCloseComment}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-
-          {commentQuotedText && (
-            <p className="text-[length:var(--text-meta)] text-muted-foreground">
-              Commenting on:{" "}
-              <span className="font-medium text-foreground">&ldquo;{commentQuotedText}&rdquo;</span>
-            </p>
-          )}
-
-          <Textarea
-            value={commentDraft}
-            onChange={(e) => setCommentDraft(e.target.value)}
-            placeholder="Add a comment…"
-            rows={2}
-            autoFocus
-          />
-          <div className="flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={onCloseComment}>
-              Close
-            </Button>
-            <Button
-              size="sm"
-              disabled={!commentDraft.trim()}
-              onClick={() => {
-                onSubmitComment(commentDraft);
-                setCommentDraft("");
-              }}
-            >
-              Send
-            </Button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

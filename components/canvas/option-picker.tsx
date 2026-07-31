@@ -1,12 +1,11 @@
 "use client";
 
-import { useState } from "react";
 import { ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { TypewriterText } from "./typewriter-text";
 import AITextLoading from "@/components/kokonutui/ai-text-loading";
-import type { OptionSet } from "@/lib/types";
+import type { ChoiceOption } from "@/lib/types";
 
 // Same shimmering-text loading style used everywhere else a card is
 // generating (rx-node.tsx's CARD_LOADING_STAGES) — kept as its own constant
@@ -20,29 +19,39 @@ const STAGGER_MS = 220;
 const CARD_ENTRANCE_DELAY_MS = 300;
 
 export function OptionPicker({
-  optionSet,
-  onPick,
+  question,
+  options,
+  picked,
+  onSelectOption,
+  onConfirm,
   disabled,
 }: {
-  optionSet: OptionSet;
-  onPick: (choiceId: string) => void;
+  question: string;
+  options: ChoiceOption[];
+  /** Index into `options`, or null before a pick — persisted on the node's
+   *  own data (not local state) so a `refine_in_place` note can clear it
+   *  when the option set regenerates. */
+  picked: number | null;
+  /** Clicking an option card — just changes which one is picked, no async
+   *  work yet. */
+  onSelectOption: (index: number) => void;
+  /** "Select and continue" — commits the currently picked option. */
+  onConfirm: () => void;
   disabled?: boolean;
 }) {
-  const [pickedId, setPickedId] = useState<string | null>(null);
-
   return (
     <div className="space-y-1.5 border-t border-border pt-2">
-      <p className="text-xs font-medium text-foreground">{optionSet.prompt}</p>
+      <p className="text-xs font-medium text-foreground">{question}</p>
       <div className="flex flex-col gap-3">
-        {optionSet.choices.map((choice, index) => {
-          const isPicked = pickedId === choice.id;
+        {options.map((option, index) => {
+          const isPicked = picked === index;
           const startDelayMs = CARD_ENTRANCE_DELAY_MS + index * STAGGER_MS;
           return (
             <button
-              key={choice.id}
+              key={index}
               type="button"
               disabled={disabled}
-              onClick={() => setPickedId(choice.id)}
+              onClick={() => onSelectOption(index)}
               aria-pressed={isPicked}
               style={{ animationDelay: `${startDelayMs}ms` }}
               className={cn(
@@ -53,10 +62,10 @@ export function OptionPicker({
               )}
             >
               <p className="font-medium text-foreground">
-                <TypewriterText text={choice.label} startDelayMs={startDelayMs} />
+                <TypewriterText text={option.title} startDelayMs={startDelayMs} />
               </p>
               <p className="text-muted-foreground">
-                <TypewriterText text={choice.description} startDelayMs={startDelayMs} />
+                <TypewriterText text={option.subtitle} startDelayMs={startDelayMs} />
               </p>
             </button>
           );
@@ -67,10 +76,10 @@ export function OptionPicker({
           size="sm"
           variant="outline-cta"
           className="nodrag"
-          disabled={!pickedId || disabled}
-          onClick={() => pickedId && onPick(pickedId)}
+          disabled={picked === null || disabled}
+          onClick={onConfirm}
         >
-          {disabled && pickedId ? (
+          {disabled && picked !== null ? (
             <AITextLoading
               texts={PICK_LOADING_STAGES}
               interval={700}

@@ -11,29 +11,6 @@ import type { CanvasNodeData } from "./types";
 const SIBLING_GAP = 412;
 
 /**
- * Reddit-style comment threading: every "comment" ancestor a node has
- * pushes it one level further right, independent of the tree's own
- * sibling-average x above — a comment's AI reply doesn't indent past its
- * own comment (it reads as "under" that comment), but a NEW comment left on
- * that reply indents one level deeper again. See canvas-screen.tsx's
- * threadIndentLevel prop (rx-node.tsx) for the matching visual thread line.
- */
-export const COMMENT_INDENT_PX = 48;
-
-export function commentIndentLevel(
-  node: CanvasNodeData,
-  byId: Map<string, CanvasNodeData>
-): number {
-  let level = 0;
-  let cur: CanvasNodeData | undefined = node;
-  while (cur) {
-    if (cur.kind === "comment") level++;
-    cur = cur.parentId ? byId.get(cur.parentId) : undefined;
-  }
-  return level;
-}
-
-/**
  * Top-to-bottom tree layout: x by an in-order pass over each node's visible
  * children so siblings spread out horizontally without overlapping; y by
  * walking each node's OWN ancestor chain independently.
@@ -85,15 +62,6 @@ export function layoutNodes(
     const parentPos = positions[n.parentId];
     if (!parentPos) continue;
     positions[n.id].y = parentPos.y + (nodeHeights[n.parentId] ?? 0);
-  }
-
-  // Reddit-style indent pass, applied last on top of the tree's own
-  // sibling-average x — shifts comment threads right as a block without
-  // disturbing the main path's layout math above.
-  const byId = new Map(nodes.map((n) => [n.id, n]));
-  for (const n of nodes) {
-    const level = commentIndentLevel(n, byId);
-    if (level > 0) positions[n.id].x += level * COMMENT_INDENT_PX;
   }
 
   return positions;

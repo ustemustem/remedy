@@ -7,6 +7,32 @@ export function getSupersededIds(nodes: CanvasNodeData[]): Set<string> {
   );
 }
 
+/**
+ * A node whose `createdUnderRevision` no longer matches its parent's
+ * CURRENT `activeRevision` was created under a premise the parent has since
+ * revised away — it (and everything below it, since this check walks the
+ * whole ancestor chain) goes stale: hidden, never deleted. Reverting the
+ * parent's `activeRevision` back to the matching one brings the subtree
+ * back automatically, with no extra bookkeeping — see the context-note
+ * model in lib/types.ts.
+ */
+export function isStale(node: CanvasNodeData, byId: Map<string, CanvasNodeData>): boolean {
+  let current = node;
+  while (current.parentId) {
+    const parent = byId.get(current.parentId);
+    if (!parent) return false;
+    if (
+      current.createdUnderRevision != null &&
+      parent.activeRevision != null &&
+      current.createdUnderRevision !== parent.activeRevision
+    ) {
+      return true;
+    }
+    current = parent;
+  }
+  return false;
+}
+
 /** Walk a parentId chain forward past any superseded (hidden) ancestors. */
 export function resolveVisibleParentId(
   parentId: string | null,
@@ -114,7 +140,7 @@ export function deriveDashboardNeeds(nodes: CanvasNodeData[]): DashboardNeed[] {
       node,
       category: node.highlights?.[0]?.primaryTag ?? themesForNode(node)[0] ?? "General",
       quote,
-      revisionCount: (node.version ?? 1) - 1,
+      revisionCount: (node.activeRevision ?? node.version ?? 1) - 1,
       eliminated,
       peerOutcome: node.peerOutcome,
     };

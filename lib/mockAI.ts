@@ -21,6 +21,11 @@ import type {
   CanvasEdgeData,
   ChoiceOption,
   FeedbackContext,
+  CardOrigin,
+  SentimentPoint,
+  SessionSummary,
+  SessionStats,
+  EvidenceExample,
 } from "./types";
 
 function sleep(ms: number) {
@@ -46,12 +51,118 @@ const MOCK_MATCH_FACTORS = [
   { label: "Peer adoption in cohort", weight: 17 },
 ];
 
+// Deliberately generic — role/company-size descriptors only, never a specific
+// invented name. Illustrative placeholder for future real sourcing (PRD
+// Section 7), not real LinkedIn/company data.
+const EVIDENCE_POOL: Record<EvidenceExample["kind"], EvidenceExample[]> = {
+  linkedin: [
+    { kind: "linkedin", label: "Engineering Manager, mid-size SaaS company", detail: "Cut sprint slippage by narrowing WIP limits before changing tooling." },
+    { kind: "linkedin", label: "Head of Delivery, B2B platform team", detail: "Reported steadier sprint completion after the same approach." },
+  ],
+  app: [
+    { kind: "app", label: "Project tracking tool, mid-market tier", detail: "Usage data shows teams with several active initiatives adopt this pattern first." },
+    { kind: "app", label: "Sprint planning add-on", detail: "Most-enabled setting among teams reporting improved predictability." },
+  ],
+  company: [
+    { kind: "company", label: "50-150 employee software company", detail: "Case study cohort where this recommendation was most effective." },
+    { kind: "company", label: "Series B product company", detail: "Matched cohort with similar team size and process maturity." },
+  ],
+};
+
+let evidenceCycleIndex = 0;
+function mockEvidenceExamples(): EvidenceExample[] {
+  const i = evidenceCycleIndex % 2;
+  evidenceCycleIndex += 1;
+  return [EVIDENCE_POOL.linkedin[i], EVIDENCE_POOL.app[i], EVIDENCE_POOL.company[i]];
+}
+
+// Mocked heuristic, not real NLP — see docs/superpowers/specs/2026-08-03-reporting-screen-kpi-design.md.
+// A real sentiment/NLP call is a future seam here, same as everything else in this file.
+const NEGATIVE_NOTE_WORDS = ["wrong", "not what", "unclear", "don't", "instead", "too many", "confusing"];
+const POSITIVE_NOTE_WORDS = ["good", "exactly", "perfect", "prefer", "yes", "works"];
+
+function classifyRevisionTone(
+  note: string,
+  intent: CardOrigin["intent"] | undefined
+): "positive" | "neutral" | "negative" {
+  const lower = note.toLowerCase();
+  if (NEGATIVE_NOTE_WORDS.some((w) => lower.includes(w))) return "negative";
+  if (POSITIVE_NOTE_WORDS.some((w) => lower.includes(w))) return "positive";
+  if (intent === "branch_new_direction") return "negative";
+  return "neutral";
+}
+
 function mockPeerOutcome(cohortSize: number, definition: string): CanvasNodeData["peerOutcome"] {
   return {
     cohortSize,
     cohortDefinition: definition,
     bars: [42, 58, 71, 65, 80, 74],
   };
+}
+
+function buildSentimentTimeline(nodes: CanvasNodeData[]): SentimentPoint[] {
+  const points: SentimentPoint[] = [];
+
+  for (const node of nodes) {
+    if (!node.revisions) continue;
+
+    node.revisions.forEach((revision, index) => {
+      if (!revision.note) return;
+
+      // Only the CURRENT active revision's origin is tracked on the node
+      // (CardOrigin is a node-level field, not per-revision — see
+      // lib/types.ts). Older, non-active revisions don't have a stored
+      // intent to fall back on, so the keyword scan alone decides their
+      // tone, defaulting to "neutral" rather than mis-attributing the
+      // active revision's intent to a different revision's note.
+      const isActiveRevision = index + 1 === node.activeRevision;
+      const intent = isActiveRevision ? node.origin?.intent : undefined;
+
+      points.push({
+        timestamp: revision.createdAt,
+        label: revision.title,
+        tone: classifyRevisionTone(revision.note, intent),
+      });
+    });
+  }
+
+  return points.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+}
+
+function buildSummarySentence(stats: SessionStats, timeline: SentimentPoint[]): string {
+  if (stats.noteCount === 0) {
+    return "You accepted every recommendation as given, without needing to redirect any of them.";
+  }
+
+  const negativeCount = timeline.filter((p) => p.tone === "negative").length;
+  const negativeRatio = timeline.length > 0 ? negativeCount / timeline.length : 0;
+
+  if (negativeRatio <= 0.5 && negativeCount <= 1) {
+    return "You moved through this with confidence — most recommendations were accepted as given.";
+  }
+
+  if (negativeRatio <= 0.5) {
+    return `You explored a few different directions before settling — ${negativeCount} recommendation${negativeCount === 1 ? "" : "s"} needed a different direction before you found the right fit.`;
+  }
+
+  return `This took some back-and-forth — you steered ${negativeCount} recommendation${negativeCount === 1 ? "" : "s"} in a new direction before landing on what worked.`;
+}
+
+/**
+ * Fake async: mocked behavioral-proxy + note-keyword-scan "session summary."
+ * Not real NLP — see the classifyRevisionTone comment above. This is the
+ * seam for a future real LLM-generated summary.
+ */
+export async function getSessionSummary(
+  nodes: CanvasNodeData[],
+  stats: SessionStats
+): Promise<SessionSummary> {
+  await delay();
+
+  const timeline = buildSentimentTimeline(nodes);
+  const sentence = buildSummarySentence(stats, timeline);
+
+  return { sentence, timeline };
 }
 
 /**
@@ -251,6 +362,7 @@ export async function getPreferredContinuation(
     transparency: node.transparency,
     matchFactors: node.matchFactors,
     peerOutcome: node.peerOutcome,
+    evidenceExamples: mockEvidenceExamples(),
     groupId: node.groupId,
     groupLabel: node.groupLabel,
   };
@@ -318,6 +430,7 @@ export async function getOptionResponse(
     transparency: "sponsored",
     matchFactors: MOCK_MATCH_FACTORS,
     peerOutcome: mockPeerOutcome(268, "teams that picked this option, last 12 months"),
+    evidenceExamples: mockEvidenceExamples(),
     groupId: node.groupId,
     groupLabel: node.groupLabel,
   };
@@ -494,6 +607,7 @@ export async function branchFromNote(
           matchScore: clamp(75 + delta, 40, 99),
           retentionRate: clamp(78 + delta, 40, 99),
           transparency: "organic" as const,
+          evidenceExamples: mockEvidenceExamples(),
         }),
     groupId: node.groupId,
     groupLabel: node.groupLabel,
@@ -547,6 +661,7 @@ export async function branchFromChoiceFraming(
     transparency: "sponsored",
     matchFactors: MOCK_MATCH_FACTORS,
     peerOutcome: mockPeerOutcome(268, "teams that picked this option, last 12 months"),
+    evidenceExamples: mockEvidenceExamples(),
     groupId: node.groupId,
     groupLabel: node.groupLabel,
   };

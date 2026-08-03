@@ -42,7 +42,7 @@ export function OptionPicker({
   return (
     <div className="space-y-1.5 border-t border-border pt-2">
       <p className="text-xs font-medium text-foreground">{question}</p>
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-2">
         {options.map((option, index) => {
           const isPicked = picked === index;
           const startDelayMs = CARD_ENTRANCE_DELAY_MS + index * STAGGER_MS;
@@ -55,18 +55,32 @@ export function OptionPicker({
               aria-pressed={isPicked}
               style={{ animationDelay: `${startDelayMs}ms` }}
               className={cn(
-                "nodrag animate-in fade-in-0 slide-in-from-bottom-1 fill-mode-both space-y-1.5 rounded-[var(--radius-option)] border border-border bg-card p-2 text-left text-xs duration-300 ease-out transition-colors",
-                "hover:border-primary/60",
-                isPicked && "border-primary bg-primary/5",
+                "nodrag animate-in fade-in-0 slide-in-from-bottom-1 fill-mode-both flex flex-col gap-1.5 rounded-[var(--radius-option)] p-2 text-left text-xs duration-300 ease-out transition-colors",
+                isPicked && "bg-foreground/8",
                 disabled && "cursor-not-allowed opacity-60"
               )}
             >
-              <p className="font-medium text-foreground">
-                <TypewriterText text={option.title} startDelayMs={startDelayMs} />
-              </p>
-              <p className="text-muted-foreground">
+              <span className="flex items-start gap-2">
+                <span className="relative mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full border border-foreground">
+                  {isPicked && (
+                    <span className="absolute inset-0 m-auto h-1.5 w-1.5 rounded-full bg-foreground" />
+                  )}
+                </span>
+                <span
+                  className={cn(
+                    "bg-[image:linear-gradient(currentColor,currentColor)] bg-[position:0_calc(100%+2px)] bg-[length:0%_1px] bg-no-repeat font-medium text-foreground transition-[background-size] duration-300 ease-out",
+                    isPicked && "bg-[length:100%_1px]"
+                  )}
+                >
+                  <TypewriterText
+                    text={`${index + 1}. ${option.title}`}
+                    startDelayMs={startDelayMs}
+                  />
+                </span>
+              </span>
+              <span className="pl-[18px] text-muted-foreground">
                 <TypewriterText text={option.subtitle} startDelayMs={startDelayMs} />
-              </p>
+              </span>
             </button>
           );
         })}

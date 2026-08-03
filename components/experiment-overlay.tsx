@@ -21,6 +21,8 @@ import { useState } from "react";
 export function ExperimentOverlay({
   optionRadius,
   onOptionRadiusChange,
+  headerRadius,
+  onHeaderRadiusChange,
   cardPadding,
   onCardPaddingChange,
   textMeta,
@@ -33,6 +35,11 @@ export function ExperimentOverlay({
   /** OptionPicker A/B/C choice-card radius (px) — see --radius-option in globals.css. */
   optionRadius: number;
   onOptionRadiusChange: (radius: number) => void;
+  /** A card's origin-strip/note-panel corner radius (px) — see --radius-header in
+   *  globals.css. Independent from the outer card's own squircle boundary, since
+   *  the same radius number reads differently on a plain arc vs. a squircle curve. */
+  headerRadius: number;
+  onHeaderRadiusChange: (radius: number) => void;
   /** Horizontal card padding (px) — shared by canvas cards and dashboard cards. */
   cardPadding: number;
   onCardPaddingChange: (px: number) => void;
@@ -93,6 +100,27 @@ export function ExperimentOverlay({
             step={1}
             value={optionRadius}
             onChange={(e) => onOptionRadiusChange(Number(e.target.value))}
+            className="w-full accent-cta"
+          />
+        </div>
+
+        <div className="space-y-2 border-t border-border pt-4">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-foreground">Card header radius</p>
+            <span className="text-[11px] tabular-nums text-muted-foreground">{headerRadius}px</span>
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            The origin-strip/note-panel corners inside a card — a plain rounded corner, unlike
+            the outer card&rsquo;s squircle boundary. Same 12px on both looks mismatched; tune
+            this until the two visually line up.
+          </p>
+          <input
+            type="range"
+            min={0}
+            max={24}
+            step={1}
+            value={headerRadius}
+            onChange={(e) => onHeaderRadiusChange(Number(e.target.value))}
             className="w-full accent-cta"
           />
         </div>

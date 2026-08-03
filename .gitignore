@@ -45,3 +45,6 @@ next-env.d.ts
 
 # brainstorming visual companion scratch files
 .superpowers/
+
+# git worktrees (subagent-driven-development scratch)
+.worktrees/

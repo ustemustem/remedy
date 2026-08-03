@@ -90,37 +90,35 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
         ))}
       </div>
 
+      <SectionHead index={2} title="How we read your situation" hint="from your own feedback on the canvas" />
       {themes.length > 0 && (
-        <>
-          <SectionHead index={2} title="How we read your situation" hint="from your own feedback on the canvas" />
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            <Card className="py-4">
-              <CardContent className="px-[var(--card-px)]">
-                <p className="mb-3 font-mono text-[length:var(--text-label)] font-bold uppercase tracking-wide text-muted-foreground">
-                  Themes that shaped this
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {themes.map((t) => (
-                    <span
-                      key={`${t.type}-${t.theme}`}
-                      className={cn(
-                        "rounded-full border px-2.5 py-1 text-[length:var(--text-label)] font-medium",
-                        t.type === "like"
-                          ? "border-primary/30 bg-primary/5 text-primary"
-                          : "border-destructive/30 bg-destructive/5 text-destructive"
-                      )}
-                    >
-                      {t.type === "like" ? "+" : "−"} {t.theme}
-                    </span>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <SessionSummarySection nodes={nodes} />
-        </>
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <Card className="py-4">
+            <CardContent className="px-[var(--card-px)]">
+              <p className="mb-3 font-mono text-[length:var(--text-label)] font-bold uppercase tracking-wide text-muted-foreground">
+                Themes that shaped this
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {themes.map((t) => (
+                  <span
+                    key={`${t.type}-${t.theme}`}
+                    className={cn(
+                      "rounded-full border px-2.5 py-1 text-[length:var(--text-label)] font-medium",
+                      t.type === "like"
+                        ? "border-primary/30 bg-primary/5 text-primary"
+                        : "border-destructive/30 bg-destructive/5 text-destructive"
+                    )}
+                  >
+                    {t.type === "like" ? "+" : "−"} {t.theme}
+                  </span>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       )}
+
+      <SessionSummarySection nodes={nodes} />
 
       <SectionHead index={3} title="Your prescription" hint="ranked by match, per need" />
       <div className="flex flex-col gap-3">

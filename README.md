@@ -7,6 +7,14 @@ No real backend, LLM calls, or persistence — see `docs/` for the full build br
 name "CanvasRx" — those doc filenames are kept as-is for traceability to the original
 spec; the shipped brand name is now **Remedy** (see `public/logo.svg`).
 
+## Fonts
+
+The shipped design system uses **Geist** (`--font-geist`, `font-sans`) for body/UI text and
+**IBM Plex Mono** (`--font-plex-mono`) for headings/labels/data, both loaded via
+`next/font/google` in `app/layout.tsx`. The older spec docs in `docs/` (written under the
+"CanvasRx" working name) call for Inter instead of Geist — that's superseded; Geist is the
+decision going forward, use it anywhere the docs still say Inter.
+
 ## Run it
 
 ```bash

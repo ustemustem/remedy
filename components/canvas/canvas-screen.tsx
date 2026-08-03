@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useCallback, useEffect, useRef } from "react";
+import { useMemo, useState, useCallback, useEffect, useRef, type MutableRefObject } from "react";
 import ReactFlow, {
   Background,
   Controls,
@@ -8,6 +8,7 @@ import ReactFlow, {
   ReactFlowProvider,
   useEdgesState,
   useNodesState,
+  useUpdateNodeInternals,
   type Node,
   type Edge,
   type NodeChange,
@@ -86,7 +87,7 @@ const CARD_HEIGHT_FALLBACK = 160;
 // Vertical space reserved above a depth row's tallest measured card — clears
 // the card's own hover toolbar plus room for the connector down to the next
 // row, in the same spirit as FRAME_PADDING_Y_TOP/_BOTTOM above.
-const ROW_MARGIN = 100;
+const ROW_MARGIN = 150;
 // Even an all-short-cards row (e.g. a chain of Counter-argument "Prefer this
 // option" cards) keeps this much breathing room, so rows never feel cramped.
 const ROW_HEIGHT_FLOOR = 260;
@@ -413,6 +414,31 @@ function getPathAncestors(
   return ancestors;
 }
 
+/**
+ * Drains `pendingRef` (node ids whose measured size changed this tick, set
+ * by the measuring rAF loop below) into React Flow's own
+ * `updateNodeInternals` — the piece that actually refreshes edge handle
+ * coordinates. `useUpdateNodeInternals` only works inside `ReactFlowProvider`,
+ * which is why this is a separate component rendered alongside `<ReactFlow>`
+ * rather than called directly in CanvasScreen's body.
+ */
+function NodeInternalsSync({ pendingRef }: { pendingRef: MutableRefObject<Set<string>> }) {
+  const updateNodeInternals = useUpdateNodeInternals();
+  useEffect(() => {
+    let raf: number;
+    const drain = () => {
+      if (pendingRef.current.size > 0) {
+        updateNodeInternals(Array.from(pendingRef.current));
+        pendingRef.current.clear();
+      }
+      raf = requestAnimationFrame(drain);
+    };
+    raf = requestAnimationFrame(drain);
+    return () => cancelAnimationFrame(raf);
+  }, [updateNodeInternals, pendingRef]);
+  return null;
+}
+
 export function CanvasScreen({
   initialGraph,
   onGraphChange,
@@ -461,6 +487,17 @@ export function CanvasScreen({
   const [measuredSizes, setMeasuredSizes] = useState<
     Record<string, { width: number; height: number }>
   >({});
+  // Node ids whose measured size changed this tick but React Flow doesn't
+  // know about yet — our own position-patching effect corrects a node's
+  // `position` directly (bypassing React Flow's normal flow), but edges
+  // read handle coordinates from React Flow's own internal "handle bounds"
+  // cache, which only React Flow's `updateNodeInternals` refreshes. Without
+  // draining this into that call (see NodeInternalsSync below, rendered
+  // inside ReactFlowProvider since the hook needs that context), every edge
+  // stays permanently anchored to whatever fallback size was measured on a
+  // node's very first render — visible as a cramped, multi-bend connector
+  // right out of the Source card that never self-corrects.
+  const pendingInternalsUpdateRef = useRef<Set<string>>(new Set());
   // Effective (lerped) vertical space each card needs below it before its
   // own children start, keyed by that card's node id — derived from
   // measuredSizes each tick (see the measuring effect below). Deliberately
@@ -468,7 +505,17 @@ export function CanvasScreen({
   // own ancestors' heights, never on an unrelated branch's card that
   // happens to sit at the same depth. lib/layout.ts's layoutNodes turns
   // this into each node's absolute Y by walking its own ancestor chain.
-  const [nodeRowHeights, setNodeRowHeights] = useState<Record<string, number>>({});
+  // Seeded from ROW_HEIGHT_FLOOR for every node already in the initial graph
+  // (not {}) — the measuring rAF loop below needs at least one frame to
+  // populate real heights, and until it does, layoutNodes.ts falls back to
+  // `nodeHeights[parentId] ?? 0`. A `{}` seed meant every child briefly
+  // rendered at the exact same y as its parent on first paint (zero gap),
+  // which forced getSmoothStepPath into a cramped multi-bend "staircase"
+  // route for the very first frame — most visible right at the Source card,
+  // since it's the one guaranteed to already have children on canvas load.
+  const [nodeRowHeights, setNodeRowHeights] = useState<Record<string, number>>(() =>
+    Object.fromEntries(initialGraph.nodes.map((n) => [n.id, ROW_HEIGHT_FLOOR]))
+  );
   // Lets the node-rebuild effect below read the latest row heights for a
   // brand-new card's very first raw position, without depending on
   // nodeRowHeights directly — that would recreate every card's `data`
@@ -1003,6 +1050,7 @@ export function CanvasScreen({
           ) {
             next[nodeId] = size;
             changed = true;
+            pendingInternalsUpdateRef.current.add(nodeId);
           }
         }
         return changed ? next : prev;
@@ -1239,6 +1287,8 @@ export function CanvasScreen({
                 nodeStrokeColor={minimapNodeStrokeColor}
               />
             </ReactFlow>
+
+            <NodeInternalsSync pendingRef={pendingInternalsUpdateRef} />
 
             <ThemePanel
               themes={themeEntries}

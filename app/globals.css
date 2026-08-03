@@ -126,6 +126,16 @@
                              not the outer card itself (still live in
                              experiment-overlay.tsx, unlike the three above,
                              which got locked in). */
+  --radius-header: 12px; /* The origin strip / note-panel's own rounded-t/
+                             rounded-b corners inside a card (rx-node.tsx).
+                             These are plain circular-arc CSS corners, but
+                             the outer card boundary is a squircle
+                             clip-path (see softness-context.tsx +
+                             lib/squircle.ts) — same radius number still
+                             looks visually different from a true squircle
+                             corner, so this is independently tunable
+                             (experiment-overlay.tsx) to dial the two back
+                             into visual alignment. */
   /* Design-critique experiments (see experiment-overlay.tsx): consolidates
      canvas's px-3 vs dashboard's px-4 card padding drift, and the six
      hand-tuned 10-12.5px micro-label sizes, into single live-tunable

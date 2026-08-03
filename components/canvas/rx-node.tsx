@@ -502,7 +502,7 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
             }}
             aria-expanded={noteDetailOpen}
             className={cn(
-              "nodrag -mt-4 mb-3 flex w-full cursor-pointer items-center justify-between gap-2 rounded-t-[var(--radius-card)] px-[var(--card-px)] py-2 text-[length:var(--text-meta)] transition-colors",
+              "nodrag -mt-4 mb-3 flex w-full cursor-pointer items-center justify-between gap-2 rounded-t-[var(--radius-header)] border border-b-0 border-border px-[var(--card-px)] py-2 text-[length:var(--text-meta)] transition-colors",
               isBranchOrigin ? "bg-cta/10 hover:bg-cta/15" : "bg-primary/10 hover:bg-primary/15"
             )}
           >
@@ -537,7 +537,7 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
         {origin && noteDetailOpen && (
           <div
             className={cn(
-              "-mt-3 mb-3 space-y-2 rounded-b-[var(--radius-card)] border-b border-border px-[var(--card-px)] py-2.5 text-[length:var(--text-meta)] text-muted-foreground",
+              "-mt-6 mb-3 space-y-2 border-x border-b border-border px-[var(--card-px)] py-2.5 text-[length:var(--text-meta)] text-muted-foreground",
               isBranchOrigin ? "bg-cta/5" : "bg-primary/5"
             )}
           >

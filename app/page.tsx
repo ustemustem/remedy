@@ -53,6 +53,12 @@ export default function Home() {
   // independently tunable from --radius-card (see globals.css) since it's a
   // nested control, not the outer card.
   const [optionRadius, setOptionRadius] = useState(8);
+  // A card's own origin-strip/note-panel corners (rx-node.tsx) vs. its outer
+  // squircle clip-path boundary (softness-context.tsx) — same 12px radius
+  // number, but a plain circular arc looks visually different from the
+  // squircle's flatter curve. Independently tunable so the two can be dialed
+  // back into visual alignment. See --radius-header in globals.css.
+  const [headerRadius, setHeaderRadius] = useState(12);
   useEffect(() => {
     document.documentElement.style.setProperty("--radius-control", `${CONTROL_RADIUS}px`);
     document.documentElement.style.setProperty("--radius-card", `${CARD_RADIUS}px`);
@@ -61,6 +67,9 @@ export default function Home() {
   useEffect(() => {
     document.documentElement.style.setProperty("--radius-option", `${optionRadius}px`);
   }, [optionRadius]);
+  useEffect(() => {
+    document.documentElement.style.setProperty("--radius-header", `${headerRadius}px`);
+  }, [headerRadius]);
   useEffect(() => {
     document.documentElement.style.setProperty("--card-px", `${cardPadding}px`);
   }, [cardPadding]);
@@ -177,6 +186,8 @@ export default function Home() {
       <ExperimentOverlay
         optionRadius={optionRadius}
         onOptionRadiusChange={setOptionRadius}
+        headerRadius={headerRadius}
+        onHeaderRadiusChange={setHeaderRadius}
         cardPadding={cardPadding}
         onCardPaddingChange={setCardPadding}
         textMeta={textMeta}

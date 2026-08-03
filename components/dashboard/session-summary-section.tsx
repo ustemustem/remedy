@@ -18,6 +18,12 @@ const TONE_VALUE: Record<"positive" | "neutral" | "negative", number> = {
   negative: -1,
 };
 
+const TONE_LABEL: Record<number, string> = {
+  1: "Positive",
+  0: "Neutral",
+  [-1]: "Negative",
+};
+
 const SUMMARY_LOADING_STAGES = ["Reading your session…", "Summarizing…"];
 
 export function SessionSummarySection({ nodes }: { nodes: CanvasNodeData[] }) {
@@ -72,7 +78,16 @@ export function SessionSummarySection({ nodes }: { nodes: CanvasNodeData[] }) {
             <LineChart data={chartData} xDataKey="date" aspectRatio="4 / 1">
               <Grid horizontal />
               <Line dataKey="tone" stroke="var(--color-chart-3)" />
-              <ChartTooltip showCrosshair={false} />
+              <ChartTooltip
+                rows={(point) => [
+                  {
+                    color: "var(--color-chart-3)",
+                    label: point.label as string,
+                    value: TONE_LABEL[point.tone as number] ?? String(point.tone),
+                  },
+                ]}
+                showCrosshair={false}
+              />
               <XAxis />
               <YAxis />
             </LineChart>

@@ -104,14 +104,25 @@ function buildSentimentTimeline(nodes: CanvasNodeData[]): SentimentPoint[] {
   const points: SentimentPoint[] = [];
 
   for (const node of nodes) {
-    if (!node.origin?.note || !node.activeRevision) continue;
-    const revision = node.revisions?.[node.activeRevision - 1];
-    if (!revision) continue;
+    if (!node.revisions) continue;
 
-    points.push({
-      timestamp: revision.createdAt,
-      label: revision.title,
-      tone: classifyRevisionTone(node.origin.note, node.origin.intent),
+    node.revisions.forEach((revision, index) => {
+      if (!revision.note) return;
+
+      // Only the CURRENT active revision's origin is tracked on the node
+      // (CardOrigin is a node-level field, not per-revision — see
+      // lib/types.ts). Older, non-active revisions don't have a stored
+      // intent to fall back on, so the keyword scan alone decides their
+      // tone, defaulting to "neutral" rather than mis-attributing the
+      // active revision's intent to a different revision's note.
+      const isActiveRevision = index + 1 === node.activeRevision;
+      const intent = isActiveRevision ? node.origin?.intent : undefined;
+
+      points.push({
+        timestamp: revision.createdAt,
+        label: revision.title,
+        tone: classifyRevisionTone(revision.note, intent),
+      });
     });
   }
 

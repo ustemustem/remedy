@@ -25,6 +25,7 @@ import type {
   SentimentPoint,
   SessionSummary,
   SessionStats,
+  EvidenceExample,
 } from "./types";
 
 function sleep(ms: number) {
@@ -49,6 +50,31 @@ const MOCK_MATCH_FACTORS = [
   { label: "Budget band", weight: 21 },
   { label: "Peer adoption in cohort", weight: 17 },
 ];
+
+// Deliberately generic — role/company-size descriptors only, never a specific
+// invented name. Illustrative placeholder for future real sourcing (PRD
+// Section 7), not real LinkedIn/company data.
+const EVIDENCE_POOL: Record<EvidenceExample["kind"], EvidenceExample[]> = {
+  linkedin: [
+    { kind: "linkedin", label: "Engineering Manager, mid-size SaaS company", detail: "Cut sprint slippage by narrowing WIP limits before changing tooling." },
+    { kind: "linkedin", label: "Head of Delivery, B2B platform team", detail: "Reported steadier sprint completion after the same approach." },
+  ],
+  app: [
+    { kind: "app", label: "Project tracking tool, mid-market tier", detail: "Usage data shows teams with several active initiatives adopt this pattern first." },
+    { kind: "app", label: "Sprint planning add-on", detail: "Most-enabled setting among teams reporting improved predictability." },
+  ],
+  company: [
+    { kind: "company", label: "50-150 employee software company", detail: "Case study cohort where this recommendation was most effective." },
+    { kind: "company", label: "Series B product company", detail: "Matched cohort with similar team size and process maturity." },
+  ],
+};
+
+let evidenceCycleIndex = 0;
+function mockEvidenceExamples(): EvidenceExample[] {
+  const i = evidenceCycleIndex % 2;
+  evidenceCycleIndex += 1;
+  return [EVIDENCE_POOL.linkedin[i], EVIDENCE_POOL.app[i], EVIDENCE_POOL.company[i]];
+}
 
 // Mocked heuristic, not real NLP — see docs/superpowers/specs/2026-08-03-reporting-screen-kpi-design.md.
 // A real sentiment/NLP call is a future seam here, same as everything else in this file.
@@ -325,6 +351,7 @@ export async function getPreferredContinuation(
     transparency: node.transparency,
     matchFactors: node.matchFactors,
     peerOutcome: node.peerOutcome,
+    evidenceExamples: mockEvidenceExamples(),
     groupId: node.groupId,
     groupLabel: node.groupLabel,
   };
@@ -392,6 +419,7 @@ export async function getOptionResponse(
     transparency: "sponsored",
     matchFactors: MOCK_MATCH_FACTORS,
     peerOutcome: mockPeerOutcome(268, "teams that picked this option, last 12 months"),
+    evidenceExamples: mockEvidenceExamples(),
     groupId: node.groupId,
     groupLabel: node.groupLabel,
   };
@@ -568,6 +596,7 @@ export async function branchFromNote(
           matchScore: clamp(75 + delta, 40, 99),
           retentionRate: clamp(78 + delta, 40, 99),
           transparency: "organic" as const,
+          evidenceExamples: mockEvidenceExamples(),
         }),
     groupId: node.groupId,
     groupLabel: node.groupLabel,
@@ -621,6 +650,7 @@ export async function branchFromChoiceFraming(
     transparency: "sponsored",
     matchFactors: MOCK_MATCH_FACTORS,
     peerOutcome: mockPeerOutcome(268, "teams that picked this option, last 12 months"),
+    evidenceExamples: mockEvidenceExamples(),
     groupId: node.groupId,
     groupLabel: node.groupLabel,
   };

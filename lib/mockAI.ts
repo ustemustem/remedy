@@ -21,6 +21,10 @@ import type {
   CanvasEdgeData,
   ChoiceOption,
   FeedbackContext,
+  CardOrigin,
+  SentimentPoint,
+  SessionSummary,
+  SessionStats,
 } from "./types";
 
 function sleep(ms: number) {
@@ -46,12 +50,82 @@ const MOCK_MATCH_FACTORS = [
   { label: "Peer adoption in cohort", weight: 17 },
 ];
 
+// Mocked heuristic, not real NLP — see docs/superpowers/specs/2026-08-03-reporting-screen-kpi-design.md.
+// A real sentiment/NLP call is a future seam here, same as everything else in this file.
+const NEGATIVE_NOTE_WORDS = ["wrong", "not what", "unclear", "don't", "instead", "too many", "confusing"];
+const POSITIVE_NOTE_WORDS = ["good", "exactly", "perfect", "prefer", "yes", "works"];
+
+function classifyRevisionTone(
+  note: string,
+  intent: CardOrigin["intent"] | undefined
+): "positive" | "neutral" | "negative" {
+  const lower = note.toLowerCase();
+  if (NEGATIVE_NOTE_WORDS.some((w) => lower.includes(w))) return "negative";
+  if (POSITIVE_NOTE_WORDS.some((w) => lower.includes(w))) return "positive";
+  if (intent === "branch_new_direction") return "negative";
+  return "neutral";
+}
+
 function mockPeerOutcome(cohortSize: number, definition: string): CanvasNodeData["peerOutcome"] {
   return {
     cohortSize,
     cohortDefinition: definition,
     bars: [42, 58, 71, 65, 80, 74],
   };
+}
+
+function buildSentimentTimeline(nodes: CanvasNodeData[]): SentimentPoint[] {
+  const points: SentimentPoint[] = [];
+
+  for (const node of nodes) {
+    if (!node.origin?.note || !node.activeRevision) continue;
+    const revision = node.revisions?.[node.activeRevision - 1];
+    if (!revision) continue;
+
+    points.push({
+      timestamp: revision.createdAt,
+      label: revision.title,
+      tone: classifyRevisionTone(node.origin.note, node.origin.intent),
+    });
+  }
+
+  return points.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+}
+
+function buildSummarySentence(stats: SessionStats, timeline: SentimentPoint[]): string {
+  if (stats.noteCount === 0) {
+    return "You accepted every recommendation as given, without needing to redirect any of them.";
+  }
+
+  const negativeCount = timeline.filter((p) => p.tone === "negative").length;
+  const negativeRatio = timeline.length > 0 ? negativeCount / timeline.length : 0;
+
+  if (negativeRatio <= 0.5 && negativeCount <= 1) {
+    return "You moved through this with confidence — most recommendations were accepted as given.";
+  }
+
+  if (negativeRatio <= 0.5) {
+    return `You explored a few different directions before settling — ${negativeCount} recommendation${negativeCount === 1 ? "" : "s"} needed a different direction before you found the right fit.`;
+  }
+
+  return `This took some back-and-forth — you steered ${negativeCount} recommendation${negativeCount === 1 ? "" : "s"} in a new direction before landing on what worked.`;
+}
+
+/**
+ * Fake async: mocked behavioral-proxy + note-keyword-scan "session summary."
+ * Not real NLP — see the classifyRevisionTone comment above. This is the
+ * seam for a future real LLM-generated summary.
+ */
+export async function getSessionSummary(
+  nodes: CanvasNodeData[],
+  stats: SessionStats
+): Promise<SessionSummary> {
+  await delay();
+
+  const timeline = buildSentimentTimeline(nodes);
+  const sentence = buildSummarySentence(stats, timeline);
+
+  return { sentence, timeline };
 }
 
 /**

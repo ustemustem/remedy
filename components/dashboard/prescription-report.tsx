@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { BarChart } from "@/components/charts/bar-chart";
@@ -8,10 +7,12 @@ import { Bar } from "@/components/charts/bar";
 import { Grid } from "@/components/charts/grid";
 import { BarXAxis } from "@/components/charts/bar-x-axis";
 import { ChartTooltip } from "@/components/charts/tooltip";
-import { deriveDashboardNeeds, deriveThemeEntries, type DashboardNeed } from "@/lib/graph";
+import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
+import { deriveDashboardNeeds, deriveThemeEntries } from "@/lib/graph";
 import type { CanvasNodeData } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { SourceOverlay } from "./source-overlay";
+import { SessionSummarySection } from "./session-summary-section";
+import { EvidenceRow } from "./evidence-row";
 
 function SectionHead({ index, title, hint }: { index: number; title: string; hint?: string }) {
   return (
@@ -28,7 +29,6 @@ function SectionHead({ index, title, hint }: { index: number; title: string; hin
 }
 
 export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
-  const [sourceNeed, setSourceNeed] = useState<DashboardNeed | null>(null);
   const needs = deriveDashboardNeeds(nodes);
   const themes = deriveThemeEntries(nodes);
   const needsWithEvidence = needs.filter((n) => n.peerOutcome);
@@ -40,11 +40,6 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
       </p>
     );
   }
-
-  const focusData = needs.map((n) => ({
-    need: n.node.title.replace(/\s\(v\d+\)$/, ""),
-    revisions: n.revisionCount,
-  }));
 
   return (
     <>
@@ -71,12 +66,25 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
                   ? ` · ${n.revisionCount} revision${n.revisionCount > 1 ? "s" : ""}`
                   : " · no revisions"}
               </p>
-              <button
-                onClick={() => setSourceNeed(n)}
-                className="provenance-link text-xs font-semibold text-primary hover:underline"
-              >
-                View source →
-              </button>
+              <HoverCard>
+                <HoverCardTrigger asChild>
+                  <span className="cursor-default font-mono text-[length:var(--text-label)] text-muted-foreground">
+                    linked to your note
+                  </span>
+                </HoverCardTrigger>
+                <HoverCardContent className="space-y-2 text-xs">
+                  <p className="text-foreground italic">&ldquo;{n.quote}&rdquo;</p>
+                  <p className="text-muted-foreground">
+                    Chosen: {n.node.title.replace(/\s\(v\d+\)$/, "")}
+                  </p>
+                  {n.eliminated && (
+                    <p className="text-muted-foreground">Set aside: {n.eliminated.title}</p>
+                  )}
+                  <p className="text-muted-foreground">
+                    {n.revisionCount === 0 ? "No revisions" : `${n.revisionCount} revision${n.revisionCount > 1 ? "s" : ""}`}
+                  </p>
+                </HoverCardContent>
+              </HoverCard>
             </CardContent>
           </Card>
         ))}
@@ -108,21 +116,9 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
                 </div>
               </CardContent>
             </Card>
-
-            <Card className="py-4">
-              <CardContent className="px-[var(--card-px)]">
-                <p className="mb-2 font-mono text-[length:var(--text-label)] font-bold uppercase tracking-wide text-muted-foreground">
-                  Where your attention went
-                </p>
-                <BarChart aspectRatio="2 / 1" data={focusData} xDataKey="need">
-                  <Grid horizontal />
-                  <Bar dataKey="revisions" fill="var(--color-primary)" lineCap={4} />
-                  <ChartTooltip showCrosshair={false} />
-                  <BarXAxis />
-                </BarChart>
-              </CardContent>
-            </Card>
           </div>
+
+          <SessionSummarySection nodes={nodes} />
         </>
       )}
 
@@ -193,6 +189,7 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
                     <p className="mt-1 text-[length:var(--text-label)] text-muted-foreground">
                       Cohort: {n.peerOutcome!.cohortDefinition}
                     </p>
+                    {n.node.evidenceExamples && <EvidenceRow examples={n.node.evidenceExamples} />}
                   </CardContent>
                 </Card>
               );
@@ -200,8 +197,6 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
           </div>
         </>
       )}
-
-      <SourceOverlay need={sourceNeed} onOpenChange={(open) => !open && setSourceNeed(null)} />
     </>
   );
 }

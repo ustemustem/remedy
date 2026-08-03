@@ -1,4 +1,4 @@
-import type { CanvasNodeData, FeedbackContext, PeerOutcome } from "./types";
+import type { CanvasNodeData, FeedbackContext, PeerOutcome, SessionStats } from "./types";
 
 /** Ids of nodes that have since been revised — i.e. no longer the current version. */
 export function getSupersededIds(nodes: CanvasNodeData[]): Set<string> {
@@ -145,4 +145,41 @@ export function deriveDashboardNeeds(nodes: CanvasNodeData[]): DashboardNeed[] {
       peerOutcome: node.peerOutcome,
     };
   });
+}
+
+/**
+ * Behavioral KPI counts for the reporting screen — every field counts an
+ * existing, already-tracked signal (feedback, selected, groupId, picked,
+ * userFraming, revisions[].note). No new state, no fabricated data.
+ */
+export function deriveSessionStats(nodes: CanvasNodeData[]): SessionStats {
+  const pathIds = new Set<string>();
+  let likeCount = 0;
+  let dislikeCount = 0;
+  let selectedCount = 0;
+  let optionPickCount = 0;
+  let ownFramingCount = 0;
+  let noteCount = 0;
+
+  for (const node of nodes) {
+    if (node.feedback === "like") likeCount++;
+    if (node.feedback === "dislike") dislikeCount++;
+    if (node.selected) selectedCount++;
+    if (node.groupId) pathIds.add(node.groupId);
+    if (node.picked != null) optionPickCount++;
+    if (node.userFraming) ownFramingCount++;
+    for (const revision of node.revisions ?? []) {
+      if (revision.note) noteCount++;
+    }
+  }
+
+  return {
+    likeCount,
+    dislikeCount,
+    selectedCount,
+    pathCount: pathIds.size,
+    optionPickCount,
+    ownFramingCount,
+    noteCount,
+  };
 }

@@ -59,6 +59,33 @@ export interface MatchFactor {
   weight: number; // 0-100
 }
 
+export interface SessionStats {
+  likeCount: number;
+  dislikeCount: number;
+  selectedCount: number;
+  pathCount: number;
+  optionPickCount: number;
+  ownFramingCount: number;
+  noteCount: number;
+}
+
+export interface SentimentPoint {
+  timestamp: string;
+  label: string;
+  tone: "positive" | "neutral" | "negative";
+}
+
+export interface SessionSummary {
+  sentence: string;
+  timeline: SentimentPoint[];
+}
+
+export interface EvidenceExample {
+  kind: "linkedin" | "app" | "company";
+  label: string;
+  detail: string;
+}
+
 export interface CanvasNodeData {
   id: string;
   kind: NodeKind;
@@ -137,6 +164,9 @@ export interface CanvasNodeData {
   peerOutcome?: PeerOutcome;
   transparency?: "organic" | "sponsored";
   matchFactors?: MatchFactor[];
+  /** Mock LinkedIn/app/company proof points for "Why this should work" —
+   *  illustrative only, see lib/mockAI.ts's mockEvidenceExamples(). */
+  evidenceExamples?: EvidenceExample[];
 }
 
 export interface CanvasEdgeData {

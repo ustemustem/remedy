@@ -88,7 +88,7 @@ export function ChatEntryScreen({
   }
 
   return (
-    <main className="chat-entry-bg flex min-h-full flex-col items-center justify-center px-6 py-12">
+    <main className="chat-entry-bg flex h-full flex-col items-center justify-center overflow-y-auto px-6 py-12">
       <div className="relative z-10 w-full max-w-xl space-y-6">
         <div className="flex justify-center">
           {/* eslint-disable-next-line @next/next/no-img-element -- static local SVG, no optimization needed */}

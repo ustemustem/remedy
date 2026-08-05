@@ -175,14 +175,14 @@ export default function Home() {
     );
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen overflow-hidden">
       <SessionSidebar
         sessions={sessions}
         activeId={sessionId}
         onSelect={handleSelectSession}
         onNewSession={handleReset}
       />
-      <div className="min-w-0 flex-1">{content}</div>
+      <div className="min-w-0 flex-1 overflow-hidden">{content}</div>
       <ExperimentOverlay
         optionRadius={optionRadius}
         onOptionRadiusChange={setOptionRadius}

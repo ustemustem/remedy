@@ -17,8 +17,8 @@ export function DashboardScreen({
   onReset: () => void;
 }) {
   return (
-    <main className="min-h-full bg-background">
-      <header className="flex items-center justify-between border-b border-border px-4 py-2.5">
+    <div className="flex h-full flex-col bg-background">
+      <header className="flex shrink-0 items-center justify-between border-b border-border px-4 py-2.5">
         <div className="space-y-1">
           {/* eslint-disable-next-line @next/next/no-img-element -- static local SVG, no optimization needed */}
           <img src="/logo.svg" alt="Remedy" className="h-7 w-auto" />
@@ -38,11 +38,18 @@ export function DashboardScreen({
         </div>
       </header>
 
-      <div className="mx-auto max-w-5xl px-4 pb-16">
-        <PrescriptionReport nodes={graph.nodes} />
-      </div>
+      {/* This screen's own scroll region — the report body can run much
+          taller than the viewport (KPI cards, charts, evidence rows), but
+          only THIS area should scroll; the header above stays put and the
+          session sidebar (a sibling outside this component, in page.tsx)
+          has its own independent scroll region. */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-5xl px-4 pb-16">
+          <PrescriptionReport nodes={graph.nodes} />
+        </div>
 
-      <ExitPoll />
-    </main>
+        <ExitPoll />
+      </div>
+    </div>
   );
 }

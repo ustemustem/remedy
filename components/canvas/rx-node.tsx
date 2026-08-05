@@ -427,21 +427,6 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
           </div>
         )}
 
-        {squircle && (
-          <svg
-            className="pointer-events-none absolute inset-0 h-full w-full"
-            viewBox={`0 0 ${squircle.width} ${squircle.height}`}
-            aria-hidden="true"
-          >
-            <path
-              d={squircle.path}
-              fill="none"
-              stroke="var(--border)"
-              strokeWidth={2}
-            />
-          </svg>
-        )}
-
         <Handle type="target" position={Position.Top} className="!bg-border" />
         <Handle type="source" position={Position.Bottom} className="!bg-border" />
 
@@ -502,7 +487,11 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
             }}
             aria-expanded={noteDetailOpen}
             className={cn(
-              "nodrag -mt-4 mb-3 flex w-full cursor-pointer items-center justify-between gap-2 rounded-t-[var(--radius-header)] border border-b-0 border-border px-[var(--card-px)] py-2 text-[length:var(--text-meta)] transition-colors",
+              // No border/radius of its own — the outer Card's squircle clip
+              // already sculpts this strip's top corners to match every
+              // other card exactly, and its own SVG stroke (rendered last,
+              // see below) is the single border for the whole card.
+              "nodrag -mt-4 mb-3 flex w-full cursor-pointer items-center justify-between gap-2 px-[var(--card-px)] py-2 text-[length:var(--text-meta)] transition-colors",
               isBranchOrigin ? "bg-cta/10 hover:bg-cta/15" : "bg-primary/10 hover:bg-primary/15"
             )}
           >
@@ -537,7 +526,10 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
         {origin && noteDetailOpen && (
           <div
             className={cn(
-              "-mt-6 mb-3 space-y-2 border-x border-b border-border px-[var(--card-px)] py-2.5 text-[length:var(--text-meta)] text-muted-foreground",
+              // Bottom border only — an internal divider from the header
+              // below, not an attempt at the card's own outer edge (that's
+              // the squircle stroke's job, same reasoning as the strip above).
+              "-mt-6 mb-3 space-y-2 border-b border-border px-[var(--card-px)] py-2.5 text-[length:var(--text-meta)] text-muted-foreground",
               isBranchOrigin ? "bg-cta/5" : "bg-primary/5"
             )}
           >
@@ -746,6 +738,30 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
           </>
         )}
         </div>
+
+        {/* Painted LAST (on top of everything, including the origin strip's
+            and note panel's own tinted backgrounds) so this single stroke is
+            always the card's one visible border — see the strip/panel below,
+            which carry no border of their own for exactly this reason: a
+            plain CSS border-radius corner never matches a squircle curve at
+            the same radius number, so a second, independent border there
+            would always read as a mismatched, separately-rounded shape
+            stacked on the card rather than one continuous outline. */}
+        {squircle && (
+          <svg
+            className="pointer-events-none absolute inset-0 h-full w-full"
+            viewBox={`0 0 ${squircle.width} ${squircle.height}`}
+            aria-hidden="true"
+          >
+            <path
+              d={squircle.path}
+              fill="none"
+              stroke="var(--border)"
+              strokeWidth={2}
+              strokeLinejoin="round"
+            />
+          </svg>
+        )}
       </Card>
     </div>
   );

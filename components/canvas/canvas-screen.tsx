@@ -137,7 +137,8 @@ function applyOffsets(
 function computeGroupFrames(
   nodes: CanvasNodeData[],
   positions: Record<string, { x: number; y: number }>,
-  measuredSizes: Record<string, { width: number; height: number }>
+  measuredSizes: Record<string, { width: number; height: number }>,
+  topGroupId?: string | null
 ): Node<GroupFrameNodeData>[] {
   const groups = new Map<
     string,
@@ -177,24 +178,54 @@ function computeGroupFrames(
     }
   }
 
-  return Array.from(groups.entries()).map(([groupId, g], index) => ({
-    id: `frame-${groupId}`,
-    type: "groupFrame",
-    position: { x: g.xMin - FRAME_PADDING_X, y: g.yMin - FRAME_PADDING_Y_TOP },
-    style: {
-      width: g.xMax - g.xMin + FRAME_PADDING_X * 2,
-      height: g.yMax - g.yMin + FRAME_PADDING_Y_TOP + FRAME_PADDING_Y_BOTTOM,
-      zIndex: 0,
-    },
-    draggable: true,
-    selectable: false,
-    data: {
-      groupId,
-      originTitle: g.originTitle,
-      color: index % 2 === 0 ? "primary" : "cta",
-      active: false,
-    },
-  }));
+  return Array.from(groups.entries()).map(([groupId, g], index) => {
+    const width = g.xMax - g.xMin + FRAME_PADDING_X * 2;
+    const height = g.yMax - g.yMin + FRAME_PADDING_Y_TOP + FRAME_PADDING_Y_BOTTOM;
+    return {
+      id: `frame-${groupId}`,
+      type: "groupFrame",
+      position: { x: g.xMin - FRAME_PADDING_X, y: g.yMin - FRAME_PADDING_Y_TOP },
+      // Top-level width/height, not just style.width/height — @reactflow/
+      // core's createNodeInternals seeds its internal node record as
+      // `{ ...node, positionAbsolute }`, carrying forward whatever's on the
+      // object WE hand it. Its own SEPARATE `handleBounds` cache (used to
+      // compute edge endpoints) is preserved across a fresh push, but plain
+      // `width`/`height` only exists if we put it there ourselves — style
+      // alone (a CSS value) isn't read for this. Without it, every fresh
+      // frame object we push (every drag tick) leaves internals.width/height
+      // undefined until React Flow's own next DOM remeasure fills them back
+      // in — and that remeasure is unconditionally routed through
+      // requestAnimationFrame inside React Flow itself (see
+      // useUpdateNodeInternals), so there's no way to close that gap from
+      // our side quickly enough. An edge attached to a momentarily
+      // width/height-less node fails EdgeRenderer's validity check and
+      // renders `null` for that tick, which — since nothing existed to
+      // reconcile against — remounts as a brand-new instance (replaying its
+      // entrance fade) the next tick it's valid again. Setting these
+      // explicitly means the value is simply always present on the object
+      // itself, no measurement or timing involved.
+      width,
+      height,
+      // Whichever path was most recently grabbed renders above the rest —
+      // otherwise two overlapping frames fight over plain DOM order (whoever
+      // happens to come later in the array), which reads as "random" and
+      // means the one you're actively dragging can end up BEHIND the one
+      // you just dropped it on.
+      style: {
+        width,
+        height,
+        zIndex: groupId === topGroupId ? 10 : 0,
+      },
+      draggable: true,
+      selectable: false,
+      data: {
+        groupId,
+        originTitle: g.originTitle,
+        color: index % 2 === 0 ? "primary" : "cta",
+        active: false,
+      },
+    };
+  });
 }
 
 /**
@@ -421,9 +452,37 @@ function getPathAncestors(
  * coordinates. `useUpdateNodeInternals` only works inside `ReactFlowProvider`,
  * which is why this is a separate component rendered alongside `<ReactFlow>`
  * rather than called directly in CanvasScreen's body.
+ *
+ * `directRef` is a second, faster path for group frames specifically:
+ * unlike a card's height (which genuinely needs polling to *detect* a
+ * change), we already know the exact instant a frame's node object gets
+ * recreated — the patch effect that does it, in CanvasScreen. That effect
+ * lives outside ReactFlowProvider, so it can't call `useUpdateNodeInternals`
+ * itself; stashing the function here (on mount) lets it call the function
+ * DIRECTLY and synchronously right after patching a frame's position,
+ * rather than queuing the id and waiting for this component's own
+ * RAF-polled drain loop to pick it up up to one animation frame later.
+ * That gap mattered: @reactflow/core's own EdgeRenderer treats a node with
+ * no cached width/height as invalid and renders its edges as `null` for
+ * that tick, and since nothing existed to reconcile against, the edge
+ * mounts as a brand-new instance (replaying its entrance fade) the next
+ * tick it's valid again — which is what dragging a frame looked like
+ * before this.
  */
-function NodeInternalsSync({ pendingRef }: { pendingRef: MutableRefObject<Set<string>> }) {
+function NodeInternalsSync({
+  pendingRef,
+  directRef,
+}: {
+  pendingRef: MutableRefObject<Set<string>>;
+  directRef: MutableRefObject<((ids: string[]) => void) | null>;
+}) {
   const updateNodeInternals = useUpdateNodeInternals();
+  useEffect(() => {
+    directRef.current = updateNodeInternals;
+    return () => {
+      directRef.current = null;
+    };
+  }, [updateNodeInternals, directRef]);
   useEffect(() => {
     let raf: number;
     const drain = () => {
@@ -498,6 +557,9 @@ export function CanvasScreen({
   // node's very first render — visible as a cramped, multi-bend connector
   // right out of the Source card that never self-corrects.
   const pendingInternalsUpdateRef = useRef<Set<string>>(new Set());
+  // Faster, non-polled sibling of pendingInternalsUpdateRef for group
+  // frames specifically — see NodeInternalsSync's doc comment.
+  const updateNodeInternalsDirectRef = useRef<((ids: string[]) => void) | null>(null);
   // Effective (lerped) vertical space each card needs below it before its
   // own children start, keyed by that card's node id — derived from
   // measuredSizes each tick (see the measuring effect below). Deliberately
@@ -535,6 +597,11 @@ export function CanvasScreen({
   // path's auto-layout bounds without leaving the path's group; the frame
   // grows to keep containing it (see computeGroupFrames).
   const [nodeOffsets, setNodeOffsets] = useState<Record<string, Offset>>({});
+  // The most recently grabbed path — rendered above every other frame (see
+  // computeGroupFrames's zIndex), so dropping one path onto another always
+  // leaves the one you were actually holding on top, not whichever happens
+  // to sit later in the array.
+  const [topGroupId, setTopGroupId] = useState<string | null>(null);
   // Anchors for drag-delta math: the un-offset (pure auto-layout) position of
   // every card and every frame, refreshed by the patch effect below. Reading
   // "current position minus this anchor" gives an absolute offset directly
@@ -544,6 +611,17 @@ export function CanvasScreen({
     nodes: Record<string, { x: number; y: number }>;
     frames: Record<string, { x: number; y: number }>;
   }>({ nodes: {}, frames: {} });
+  // Last live position seen for each dragged node — @reactflow/core's own
+  // drag-stop change carries `dragging: false` but deliberately OMITS
+  // `.position` (see updateNodePositions in its source, called with
+  // `positionChanged=false` at drag end), so the drop point has to be
+  // remembered from the preceding `dragging: true` ticks. Without this, the
+  // final "commit the offset" step in handleNodesChange below had nothing
+  // to commit and silently no-opped — the frame LOOKED dropped where you
+  // left it, but the very next unrelated re-render snapped it straight back
+  // to its un-offset auto-layout position, since groupOffsets/nodeOffsets
+  // never actually picked up the drop.
+  const lastDragPositionRef = useRef<Record<string, { x: number; y: number }>>({});
 
   const [rfNodes, setRfNodes, onNodesChange] =
     useNodesState<RxNodeData | GroupFrameNodeData>([]);
@@ -1034,7 +1112,15 @@ export function CanvasScreen({
       const sizesThisTick: Record<string, { width: number; height: number }> = {};
       document.querySelectorAll<HTMLElement>(".react-flow__node[data-id]").forEach((el) => {
         const nodeId = el.getAttribute("data-id");
-        if (!nodeId) return;
+        // A group frame's own geometry is entirely DERIVED from its members'
+        // positions/sizes (computeGroupFrames) — measuredSizes is never read
+        // for a `frame-` id, so tracking it here only risked flagging a
+        // subpixel width/height rounding wobble as a "real" size change on
+        // every drag tick, which drained into updateNodeInternals below and
+        // made React Flow invalidate/rebuild the edge attached to that
+        // frame's Handle mid-drag (the "connectors look like they're
+        // rebuilding" bug) — for geometry that was never actually changing.
+        if (!nodeId || nodeId.startsWith("frame-")) return;
         sizesThisTick[nodeId] = { width: el.offsetWidth, height: el.offsetHeight };
       });
 
@@ -1089,12 +1175,22 @@ export function CanvasScreen({
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  // Kept out of the main rebuild effect so dragging/measuring/hovering never
-  // recreates a card's `data` object (which would retrigger its mount-in
-  // animation) — this effect only ever patches `position` on existing nodes,
-  // plus geometry/hover state on the groupFrame nodes. It's also the sole
-  // writer of basePositionsRef, the un-offset anchor drag math reads from.
-  useEffect(() => {
+  // The expensive part of layout — full structural placement plus
+  // cross-frame overlap avoidance — memoized separately from the offset
+  // application below. This is what used to cause a dragged frame (and any
+  // OTHER frame it happened to graze) to visibly jump mid-gesture: it lived
+  // inside the same effect that re-ran on every single `groupOffsets`/
+  // `nodeOffsets` update, i.e. on every pointer-move of a drag, so React
+  // Flow's own smooth native drag tracking was fighting a full
+  // layoutNodes + resolveFrameOverlaps recompute on every tick — and
+  // resolveFrameOverlaps in particular can shift a DIFFERENT frame's
+  // position as soon as the dragged one's (still-structural, pre-offset)
+  // bounds graze it, which reads as something jumping out from under the
+  // cursor. None of this needs to happen at drag speed — it only needs to
+  // reflect the current `graph`/`measuredSizes`/`nodeRowHeights`, which
+  // don't change mid-drag, so it's now a useMemo instead of effect state:
+  // dragging only re-runs the cheap offset-application effect further down.
+  const autoLayout = useMemo(() => {
     const { visibleNodes } = resolveVisibleGraph(graph);
     const rawPositions = layoutNodes(visibleNodes, nodeRowHeights);
 
@@ -1111,6 +1207,39 @@ export function CanvasScreen({
       autoPositions[n.id] = { x: raw.x + shift, y: raw.y };
     }
 
+    // Drag-delta math anchors off the auto (avoidance-corrected) position,
+    // not the raw structural one — otherwise starting a drag on a path that
+    // got auto-nudged would jump by the avoidance amount on the first move.
+    const autoFrames = computeGroupFrames(visibleNodes, autoPositions, measuredSizes);
+    const autoFramePositions: Record<string, { x: number; y: number }> = {};
+    for (const f of autoFrames) {
+      autoFramePositions[(f.data as GroupFrameNodeData).groupId] = f.position;
+    }
+
+    return { visibleNodes, autoPositions, autoFramePositions };
+  }, [graph, measuredSizes, nodeRowHeights]);
+
+  // Sole writer of basePositionsRef, the un-offset anchor drag math reads
+  // from — updates whenever the structural layout above changes, never on a
+  // drag tick itself (autoLayout's own deps don't include groupOffsets/
+  // nodeOffsets), so a drag's delta math always anchors off a stable base.
+  useEffect(() => {
+    basePositionsRef.current = {
+      nodes: autoLayout.autoPositions,
+      frames: autoLayout.autoFramePositions,
+    };
+  }, [autoLayout]);
+
+  // Kept out of the main rebuild effect so dragging/measuring/hovering never
+  // recreates a card's `data` object (which would retrigger its mount-in
+  // animation) — this effect only ever patches `position` on existing nodes,
+  // plus geometry/hover state on the groupFrame nodes. Cheap on purpose: it
+  // just applies the current drag offsets to the memoized auto-layout above,
+  // so it can re-run on every drag tick (groupOffsets/nodeOffsets change)
+  // without redoing the expensive structural recompute — see autoLayout.
+  useEffect(() => {
+    const { visibleNodes, autoPositions } = autoLayout;
+
     const adjustedPositions: Record<string, { x: number; y: number }> = {};
     for (const n of visibleNodes) {
       adjustedPositions[n.id] = applyOffsets(
@@ -1122,18 +1251,8 @@ export function CanvasScreen({
       );
     }
 
-    const groupFrames = computeGroupFrames(visibleNodes, adjustedPositions, measuredSizes);
+    const groupFrames = computeGroupFrames(visibleNodes, adjustedPositions, measuredSizes, topGroupId);
     const framesById = new Map(groupFrames.map((f) => [f.id, f]));
-
-    // Drag-delta math anchors off the auto (avoidance-corrected) position,
-    // not the raw structural one — otherwise starting a drag on a path that
-    // got auto-nudged would jump by the avoidance amount on the first move.
-    const autoFrames = computeGroupFrames(visibleNodes, autoPositions, measuredSizes);
-    const autoFramePositions: Record<string, { x: number; y: number }> = {};
-    for (const f of autoFrames) {
-      autoFramePositions[(f.data as GroupFrameNodeData).groupId] = f.position;
-    }
-    basePositionsRef.current = { nodes: autoPositions, frames: autoFramePositions };
 
     // React Flow measures each node's real DOM size via its own internal
     // ResizeObserver, but re-derives that measurement from scratch every
@@ -1145,6 +1264,21 @@ export function CanvasScreen({
     // measured size) ever sees a settled value. Bail out to the exact same
     // reference, at both the node and array level, whenever there's truly
     // nothing to patch.
+    // Every fresh object pushed for a frame below wipes React Flow's own
+    // cached width/height for it (see the comment above) — a card gets this
+    // closed again by the measuring loop's own updateNodeInternals call, but
+    // frames are excluded from that loop (their SIZE is derived, never
+    // actually needs remeasuring). Their POSITION still gets pushed as a
+    // fresh object on every drag tick though, and each push reopens the
+    // same width/height gap — if an edge attached to this frame renders
+    // while it's open, EdgeRenderer's validity check fails and the edge
+    // unmounts, then remounts (replaying its entrance fade) once the gap
+    // closes. Collected here and flushed via NodeInternalsSync's
+    // `dirtyFrameIds` prop — a same-commit effect, not the RAF-polled
+    // pendingInternalsUpdateRef — so the gap closes before the next paint
+    // instead of up to one animation frame later.
+    const touchedFrameIds: string[] = [];
+
     setRfNodes((nodes) => {
       let changed = false;
       const next = nodes.map((n) => {
@@ -1157,7 +1291,8 @@ export function CanvasScreen({
             n.position.x === nextFrame.position.x &&
             n.position.y === nextFrame.position.y &&
             n.style?.width === nextFrame.style?.width &&
-            n.style?.height === nextFrame.style?.height;
+            n.style?.height === nextFrame.style?.height &&
+            n.style?.zIndex === nextFrame.style?.zIndex;
           const nextFrameData = nextFrame.data as GroupFrameNodeData;
           const sameData =
             currData.active === active &&
@@ -1165,6 +1300,7 @@ export function CanvasScreen({
             currData.onHoverChange === setHoveredGroupId;
           if (sameGeometry && sameData) return n;
           changed = true;
+          touchedFrameIds.push(n.id);
           return {
             ...nextFrame,
             data: {
@@ -1175,22 +1311,32 @@ export function CanvasScreen({
           };
         }
         const pos = adjustedPositions[n.id];
-        if (!pos || (n.position.x === pos.x && n.position.y === pos.y)) return n;
+        // A card needs the same top-of-stack treatment as its own frame —
+        // the frame's zIndex alone only lifts its (mostly empty) background
+        // chrome, not the actual card content sitting inside it, which
+        // still stacked by plain array order otherwise. That's why dragging
+        // one path onto another looked one-directional: whichever path's
+        // cards happened to come later in `visibleNodes` always "won" the
+        // overlap, regardless of which one you'd actually just picked up.
+        const cardGroupId = (n.data as RxNodeData).nodeData.groupId;
+        const nextZIndex = cardGroupId && cardGroupId === topGroupId ? 10 : 0;
+        const positionChanged = !!pos && (n.position.x !== pos.x || n.position.y !== pos.y);
+        const zIndexChanged = (n.style?.zIndex ?? 0) !== nextZIndex;
+        if (!positionChanged && !zIndexChanged) return n;
         changed = true;
-        return { ...n, position: pos };
+        return {
+          ...n,
+          position: pos ?? n.position,
+          style: { ...n.style, zIndex: nextZIndex },
+        };
       });
       if (changed) forceHoverRecompute();
       return changed ? next : nodes;
     });
-  }, [
-    graph,
-    groupOffsets,
-    nodeOffsets,
-    measuredSizes,
-    nodeRowHeights,
-    hoveredGroupId,
-    setRfNodes,
-  ]);
+    if (touchedFrameIds.length > 0) {
+      updateNodeInternalsDirectRef.current?.(touchedFrameIds);
+    }
+  }, [autoLayout, groupOffsets, nodeOffsets, measuredSizes, hoveredGroupId, topGroupId, setRfNodes]);
 
   // Dragging a group frame moves every card in its path together; dragging a
   // single card nudges just that card (still inside its path — see
@@ -1200,30 +1346,84 @@ export function CanvasScreen({
   // dependency on rfNodes and can't be thrown off by a stale closure mid-drag.
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
+      // Extra position changes for a dragged frame's member cards, folded
+      // into the SAME onNodesChange call as the frame's own change below —
+      // moves both through React Flow's own position reducer in one batch
+      // instead of leaving the cards for our groupOffsets-driven effect to
+      // pick up a render later.
+      //
+      // Committing groupOffsets/nodeOffsets STATE, though, is deliberately
+      // held back until the gesture actually ends (`dragging: false`/
+      // undefined) rather than on every intermediate tick. That state is
+      // what the heavier patch effect below depends on, and — per
+      // @reactflow/core's own createNodeInternals, which spreads an incoming
+      // node over the old internal one WITHOUT carrying its measured
+      // width/height forward (see that effect's own comment) — every object
+      // it pushes for the dragged frame wipes React Flow's cached
+      // width/height for that node until the next remeasure. An edge whose
+      // target briefly has no width/height fails EdgeRenderer's validity
+      // check and renders `null` for that tick — which, since nothing was
+      // there to reconcile against, mounts as a brand-new instance (fresh
+      // fade-in) the next tick it's valid again. That's what "connectors
+      // look like they're rebuilding" actually was: our own effect
+      // recreating the dragged frame's node object on every pointer-move.
+      // Committing once at drag-end still keeps the rest of the layout
+      // system (staleness, avoidance, basePositions) correctly reconciled —
+      // it just doesn't need to happen at pointer-move frequency, since
+      // React Flow's native reducer already tracks the live position.
+      const extraChanges: NodeChange[] = [];
       for (const change of changes) {
-        if (change.type !== "position" || !change.position) continue;
-        const pos = change.position;
+        if (change.type !== "position") continue;
+        const isMidDrag = change.dragging === true;
+        // Remember every live position we DO see, so the position-less
+        // drag-stop change (see lastDragPositionRef's doc comment) still has
+        // something to commit with.
+        if (change.position) {
+          lastDragPositionRef.current[change.id] = change.position;
+        }
+        const pos = change.position ?? lastDragPositionRef.current[change.id];
+        if (!pos) continue;
 
         if (change.id.startsWith("frame-")) {
           const groupId = change.id.slice("frame-".length);
           const base = basePositionsRef.current.frames[groupId];
           if (!base) continue;
-          setGroupOffsets((prev) => ({
-            ...prev,
-            [groupId]: { x: pos.x - base.x, y: pos.y - base.y },
-          }));
+          const offset = { x: pos.x - base.x, y: pos.y - base.y };
+          setTopGroupId((prev) => (prev === groupId ? prev : groupId));
+          if (!isMidDrag) {
+            setGroupOffsets((prev) => ({ ...prev, [groupId]: offset }));
+          }
+
+          const { visibleNodes } = resolveVisibleGraph(graph);
+          for (const n of visibleNodes) {
+            if (n.groupId !== groupId) continue;
+            const nodeBase = basePositionsRef.current.nodes[n.id];
+            if (!nodeBase) continue;
+            const nodeOffset = nodeOffsets[n.id];
+            extraChanges.push({
+              id: n.id,
+              type: "position",
+              dragging: change.dragging,
+              position: {
+                x: nodeBase.x + offset.x + (nodeOffset?.x ?? 0),
+                y: nodeBase.y + offset.y + (nodeOffset?.y ?? 0),
+              },
+            });
+          }
         } else {
           const base = basePositionsRef.current.nodes[change.id];
           if (!base) continue;
-          setNodeOffsets((prev) => ({
-            ...prev,
-            [change.id]: { x: pos.x - base.x, y: pos.y - base.y },
-          }));
+          if (!isMidDrag) {
+            setNodeOffsets((prev) => ({
+              ...prev,
+              [change.id]: { x: pos.x - base.x, y: pos.y - base.y },
+            }));
+          }
         }
       }
-      onNodesChange(changes);
+      onNodesChange(extraChanges.length > 0 ? [...changes, ...extraChanges] : changes);
     },
-    [onNodesChange]
+    [onNodesChange, graph, nodeOffsets]
   );
 
   const proOptions = useMemo(() => ({ hideAttribution: true }), []);
@@ -1288,7 +1488,7 @@ export function CanvasScreen({
               />
             </ReactFlow>
 
-            <NodeInternalsSync pendingRef={pendingInternalsUpdateRef} />
+            <NodeInternalsSync pendingRef={pendingInternalsUpdateRef} directRef={updateNodeInternalsDirectRef} />
 
             <ThemePanel
               themes={themeEntries}

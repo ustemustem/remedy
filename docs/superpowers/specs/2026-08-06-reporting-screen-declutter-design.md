@@ -42,8 +42,9 @@ Per line:
   today's card footer (`n.eliminated ? "2 approaches explored" : "1 approach
   accepted directly"`, plus revision count)
 
-Removed: the `HoverCard` "linked to your note" trigger and the "View source →"
-provenance link entirely. No replacement — the quote is already inline in the
+Removed: the `HoverCard` "linked to your note" trigger (the provenance
+click-through it replaced in the prior 08-03 spec is already gone from
+today's code) entirely. No replacement — the quote is already inline in the
 line itself, so a separate provenance affordance is redundant now.
 
 Layout: `<ul>`-equivalent (a `div` with `divide-y` or simple `border-t`
@@ -80,11 +81,18 @@ change, plus there are 3 instead of 7.
 `deriveThemeEntries` (`lib/graph.ts`) is unchanged. Its output no longer
 renders as its own `Card`. Instead: a small trigger element (icon + short
 label, e.g. a tag/sparkle icon with `"Themes"` text) placed inline next to (or
-appended to) the 3 stat cards. Clicking/hovering it opens a `Popover`
-(`components/ui/popover.tsx` if present, else `HoverCard` — reuse whichever of
-the two is already installed and idiomatic per `components/ui/`) containing
-the same like/dislike theme chips rendered today (`+ Ownership clarity`,
+appended to) the 3 stat cards. Clicking it opens a `Popover`
+(`components/ui/popover.tsx`, already installed) containing the same
+like/dislike theme chips rendered today (`+ Ownership clarity`,
 `− Heavy tooling changes`, etc., same color logic).
+
+**Explicit choice (both `Popover` and `HoverCard` exist in `components/ui/`,
+and Section 1 above removes the only current `HoverCard` usage, so there's no
+existing-usage precedent to defer to):** use `Popover`, not `HoverCard` — a
+click-to-open trigger reads more intentionally as "there's more detail here"
+for a small icon+label affordance than a hover reveal does, and avoids
+accidental-hover trigger noise given the trigger sits directly next to 3
+stat cards a user's cursor will be passing over anyway.
 
 ### 2c. Sentiment sentence + timeline chart
 
@@ -118,6 +126,12 @@ Each card now contains, top to bottom:
    score"` / `"Active retention"` respectively, small `minWidth` sized to fit
    two side by side inside the card (implementation detail — pick a value
    that fits the grid card's column width, verify visually).
+   **Both fields are already independently optional today** (today's code
+   guards each with its own `n.node.matchScore != null` /
+   `n.node.retentionRate != null` check) — that stays true here: render
+   whichever gauge(s) have data, and if only one is present it takes the
+   card's full gauge-row width alone rather than leaving an empty slot next
+   to it.
 5. Evidence, as an **attached expandable area** (not always-open, not a
    separate section): a `Collapsible`/disclosure trigger (e.g. `"View
    evidence"`) which, when opened, shows:
@@ -154,6 +168,14 @@ files, fix hardcoded import paths to this project's aliases (`@/components`,
 `--color-chart-*`/`--color-primary` custom properties rather than the
 registry's default palette — same adaptation pattern already applied to
 `bar-chart.tsx`/`area-chart.tsx`'s bklit-sourced primitives.
+
+**Verify at implementation time** that `gauge-chart` exists at this project's
+configured `@bklit` registry (`components.json` →
+`https://ui.bklit.com/r/{name}.json`; existence can't be confirmed from the
+repo alone). If it isn't available, fall back to a small custom SVG arc built
+the same way the sentiment timeline chart in Section 2 already hand-rolls an
+SVG chart against this project's chart tokens, rather than blocking the whole
+section on the registry component.
 
 ## Error handling / edge states
 

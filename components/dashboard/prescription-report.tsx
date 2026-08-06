@@ -34,7 +34,7 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
 
   return (
     <>
-      <SectionHead index={1} title="What we understood" hint="each item links back to the moment it came from" />
+      <SectionHead index={1} title="What we understood" hint="drawn from your own words" />
       <NeedSummaryList needs={needs} />
 
       <SectionHead index={2} title="How we read your situation" hint="from your own feedback on the canvas" />

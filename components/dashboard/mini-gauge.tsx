@@ -1,4 +1,3 @@
-// components/dashboard/mini-gauge.tsx
 "use client";
 
 const RADIUS = 28;
@@ -37,6 +36,7 @@ export function MiniGauge({ value, label }: { value: number; label: string }) {
           {Math.round(clamped)}%
         </text>
       </svg>
+      <span className="sr-only">{Math.round(clamped)}% {label}</span>
       <span className="text-[length:var(--text-label)] text-muted-foreground">{label}</span>
     </div>
   );

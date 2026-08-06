@@ -8,6 +8,9 @@ export function NeedSummaryList({ needs }: { needs: DashboardNeed[] }) {
     <div className="divide-y divide-border border-t border-border">
       {needs.map((n) => (
         <div key={n.node.id} className="flex flex-wrap items-baseline gap-x-2 gap-y-1 py-3">
+          <span className="font-mono text-xs font-bold text-primary">
+            {n.node.id.split("-")[0]}
+          </span>
           <span className="text-sm font-semibold text-foreground">
             {n.node.title.replace(/\s\(v\d+\)$/, "")}
           </span>

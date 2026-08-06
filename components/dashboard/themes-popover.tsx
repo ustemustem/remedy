@@ -1,4 +1,3 @@
-// components/dashboard/themes-popover.tsx
 "use client";
 
 import { Tag } from "lucide-react";

@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { deriveSessionStats } from "@/lib/graph";
+import { deriveSessionStats, type ThemeEntry } from "@/lib/graph";
 import { getSessionSummary } from "@/lib/mockAI";
 import type { CanvasNodeData, SessionSummary } from "@/lib/types";
 import { KpiStatCard } from "./kpi-stat-card";
+import { FeedbackStatCard } from "./feedback-stat-card";
+import { ThemesPopover } from "./themes-popover";
 import { LineChart, Line } from "@/components/charts/line-chart";
 import { Grid } from "@/components/charts/grid";
 import { ChartTooltip } from "@/components/charts/tooltip";
@@ -26,15 +28,17 @@ const TONE_LABEL: Record<number, string> = {
 
 const SUMMARY_LOADING_STAGES = ["Reading your session…", "Summarizing…"];
 
-export function SessionSummarySection({ nodes }: { nodes: CanvasNodeData[] }) {
+export function SessionSummarySection({
+  nodes,
+  themes,
+}: {
+  nodes: CanvasNodeData[];
+  themes: ThemeEntry[];
+}) {
   const stats = deriveSessionStats(nodes);
   const [summary, setSummary] = useState<SessionSummary | null>(null);
   const [trackedNodes, setTrackedNodes] = useState(nodes);
 
-  // Reset the summary during render (not inside the effect) when `nodes`
-  // changes, so the sentence/chart show their loading state immediately
-  // instead of briefly flashing the previous session's summary before the
-  // effect below has a chance to run.
   if (nodes !== trackedNodes) {
     setTrackedNodes(nodes);
     setSummary(null);
@@ -59,14 +63,23 @@ export function SessionSummarySection({ nodes }: { nodes: CanvasNodeData[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
-        <KpiStatCard label="Liked" value={stats.likeCount} />
-        <KpiStatCard label="Disliked" value={stats.dislikeCount} />
-        <KpiStatCard label="Selected" value={stats.selectedCount} />
-        <KpiStatCard label="Paths explored" value={stats.pathCount} />
-        <KpiStatCard label="Options picked" value={stats.optionPickCount} />
-        <KpiStatCard label="Answered in own words" value={stats.ownFramingCount} />
-        <KpiStatCard label="Notes added" value={stats.noteCount} />
+      <div className="flex flex-wrap items-stretch gap-3">
+        <FeedbackStatCard
+          likeCount={stats.likeCount}
+          dislikeCount={stats.dislikeCount}
+          className="flex-1 basis-40"
+        />
+        <KpiStatCard
+          label="Paths explored"
+          value={stats.pathCount + stats.optionPickCount}
+          className="flex-1 basis-40"
+        />
+        <KpiStatCard
+          label="Your input"
+          value={stats.selectedCount + stats.noteCount + stats.ownFramingCount}
+          className="flex-1 basis-40"
+        />
+        <ThemesPopover themes={themes} />
       </div>
 
       {summary === null ? (

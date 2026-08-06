@@ -3,6 +3,7 @@
 import { deriveDashboardNeeds, deriveThemeEntries } from "@/lib/graph";
 import type { CanvasNodeData } from "@/lib/types";
 import { SessionSummarySection } from "./session-summary-section";
+import { UnderstoodSummary } from "./understood-summary";
 import { NeedSummaryList } from "./need-summary-list";
 import { PrescriptionCard } from "./prescription-card";
 
@@ -35,7 +36,10 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
   return (
     <>
       <SectionHead index={1} title="What we understood" hint="drawn from your own words" />
-      <NeedSummaryList needs={needs} />
+      <div className="space-y-3">
+        <UnderstoodSummary needs={needs} />
+        <NeedSummaryList needs={needs} />
+      </div>
 
       <SectionHead index={2} title="How we read your situation" hint="from your own feedback on the canvas" />
       <SessionSummarySection nodes={nodes} themes={themes} />

@@ -27,7 +27,7 @@ export function PrescriptionCard({ need }: { need: DashboardNeed }) {
     <Card className="py-4">
       <CardContent className="space-y-2 px-[var(--card-px)]">
         <div className="flex items-center gap-2">
-          <span className="font-mono text-xs font-bold text-primary">
+          <span className="font-mono text-xs font-bold uppercase tracking-wide text-primary">
             {node.id.split("-")[0]}
           </span>
           <b className="text-sm">{node.title.replace(/\s\(v\d+\)$/, "")}</b>

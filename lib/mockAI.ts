@@ -27,6 +27,7 @@ import type {
   SessionStats,
   EvidenceExample,
 } from "./types";
+import type { DashboardNeed } from "./graph";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -163,6 +164,34 @@ export async function getSessionSummary(
   const sentence = buildSummarySentence(stats, timeline);
 
   return { sentence, timeline };
+}
+
+function formatCategoryList(categories: string[]): string {
+  if (categories.length === 1) return categories[0];
+  if (categories.length === 2) return `${categories[0]} and ${categories[1]}`;
+  return `${categories.slice(0, -1).join(", ")}, and ${categories[categories.length - 1]}`;
+}
+
+/**
+ * Fake async: mocked "what we understood" summary, built from the real
+ * category/quote data `deriveDashboardNeeds` already derived — not invented
+ * copy. Seam for a future real LLM-generated summary, same pattern as
+ * getSessionSummary.
+ */
+export async function getUnderstoodSummary(needs: DashboardNeed[]): Promise<string> {
+  await delay();
+
+  if (needs.length === 0) return "";
+
+  const categories = Array.from(new Set(needs.map((n) => n.category)));
+  const categoryList = formatCategoryList(categories).toLowerCase();
+  const primaryQuote = needs[0].quote;
+
+  if (needs.length === 1) {
+    return `You came in with one clear need, around ${categoryList} — the core of it was "${primaryQuote}", which shaped the recommendation below.`;
+  }
+
+  return `You came in with ${needs.length} distinct needs, spanning ${categoryList}. The throughline was "${primaryQuote}" — everything below traces back to a specific moment in what you wrote, not a generic best practice.`;
 }
 
 /**

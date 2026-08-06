@@ -14,7 +14,7 @@ export function FeedbackStatCard({
 }) {
   return (
     <Card className={cn("py-4", className)}>
-      <CardContent className="flex flex-col items-start gap-1 px-[var(--card-px)]">
+      <CardContent className="flex flex-col items-start px-[var(--card-px)]">
         <div className="flex items-baseline gap-1.5">
           <span className="font-mono text-2xl font-bold text-foreground">{likeCount}</span>
           <span className="text-[length:var(--text-label)] text-muted-foreground">liked</span>

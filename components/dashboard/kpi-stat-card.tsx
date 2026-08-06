@@ -2,10 +2,19 @@
 
 import { ChartStatFlow } from "@/components/charts/chart-stat-flow";
 import { Card, CardContent } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
-export function KpiStatCard({ label, value }: { label: string; value: number }) {
+export function KpiStatCard({
+  label,
+  value,
+  className,
+}: {
+  label: string;
+  value: number;
+  className?: string;
+}) {
   return (
-    <Card className="py-4">
+    <Card className={cn("py-4", className)}>
       <CardContent className="flex flex-col items-start px-[var(--card-px)]">
         <ChartStatFlow
           value={value}

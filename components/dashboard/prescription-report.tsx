@@ -8,16 +8,13 @@ import { UnderstoodSummary } from "./understood-summary";
 import { NeedSummaryList } from "./need-summary-list";
 import { PrescriptionCard } from "./prescription-card";
 
-function SectionHead({ index, title, hint }: { index: number; title: string; hint?: string }) {
+function SectionHead({ index, title }: { index: number; title: string }) {
   return (
-    <div className="mb-4 mt-10 flex items-baseline justify-between">
-      <div className="flex items-baseline gap-3">
-        <span className="font-mono text-xs font-bold text-primary">
-          {String(index).padStart(2, "0")}
-        </span>
-        <h2 className="font-heading text-lg font-semibold text-foreground">{title}</h2>
-      </div>
-      {hint && <span className="text-[length:var(--text-label)] text-muted-foreground">{hint}</span>}
+    <div className="mb-4 mt-10 flex items-baseline gap-3">
+      <span className="font-mono text-xs font-bold text-primary">
+        {String(index).padStart(2, "0")}
+      </span>
+      <h2 className="font-heading text-lg font-semibold text-foreground">{title}</h2>
     </div>
   );
 }
@@ -71,7 +68,7 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
 
   return (
     <>
-      <SectionHead index={1} title="What we understood" hint="drawn from your own words" />
+      <SectionHead index={1} title="What we understood" />
       <div className="space-y-3">
         <UnderstoodSummary
           needs={needs}
@@ -89,10 +86,10 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
         />
       </div>
 
-      <SectionHead index={2} title="How we read your situation" hint="from your own feedback on the canvas" />
+      <SectionHead index={2} title="How we read your situation" />
       <SessionSummarySection nodes={nodes} themes={themes} />
 
-      <SectionHead index={3} title="Your prescription" hint="ranked by match, per need" />
+      <SectionHead index={3} title="Your prescription" />
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         {needs.map((n) => (
           <PrescriptionCard key={n.node.id} need={n} />

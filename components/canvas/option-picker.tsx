@@ -85,7 +85,7 @@ export function OptionPicker({
           );
         })}
       </div>
-      <div className="flex items-center justify-between pt-1">
+      <div className="flex items-center justify-end pt-1">
         <Button
           size="sm"
           variant="outline-cta"

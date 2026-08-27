@@ -1,37 +1,62 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
-import { BarChart } from "@/components/charts/bar-chart";
-import { Bar } from "@/components/charts/bar";
-import { Grid } from "@/components/charts/grid";
-import { BarXAxis } from "@/components/charts/bar-x-axis";
-import { ChartTooltip } from "@/components/charts/tooltip";
-import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
+import { useEffect, useMemo, useState } from "react";
 import { deriveDashboardNeeds, deriveThemeEntries } from "@/lib/graph";
 import type { CanvasNodeData } from "@/lib/types";
-import { cn } from "@/lib/utils";
 import { SessionSummarySection } from "./session-summary-section";
-import { EvidenceRow } from "./evidence-row";
+import { UnderstoodSummary } from "./understood-summary";
+import { NeedSummaryList } from "./need-summary-list";
+import { PrescriptionCard } from "./prescription-card";
 
-function SectionHead({ index, title, hint }: { index: number; title: string; hint?: string }) {
+function SectionHead({ index, title }: { index: number; title: string }) {
   return (
-    <div className="mb-4 mt-10 flex items-baseline justify-between">
-      <div className="flex items-baseline gap-3">
-        <span className="font-mono text-xs font-bold text-primary">
-          {String(index).padStart(2, "0")}
-        </span>
-        <h2 className="font-heading text-lg font-semibold text-foreground">{title}</h2>
-      </div>
-      {hint && <span className="text-[length:var(--text-label)] text-muted-foreground">{hint}</span>}
+    <div className="mb-4 mt-10 flex items-baseline gap-3">
+      <span className="font-mono text-xs font-bold text-primary">
+        {String(index).padStart(2, "0")}
+      </span>
+      <h2 className="font-heading text-lg font-semibold text-foreground">{title}</h2>
     </div>
   );
 }
 
 export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
-  const needs = deriveDashboardNeeds(nodes);
-  const themes = deriveThemeEntries(nodes);
-  const needsWithEvidence = needs.filter((n) => n.peerOutcome);
+  // Memoized on `nodes` specifically: deriveDashboardNeeds/deriveThemeEntries
+  // build fresh arrays every call, and PrescriptionReport re-renders on every
+  // hover/focus during Section 1's ref<->row highlight below. Without this,
+  // UnderstoodSummary's `needs !== trackedNeeds` reference check (its signal
+  // to refetch) would see a "new" needs array on every hover and reset back
+  // to its loading state — the bug this fixes.
+  const needs = useMemo(() => deriveDashboardNeeds(nodes), [nodes]);
+  const themes = useMemo(() => deriveThemeEntries(nodes), [nodes]);
+
+  // Section 1's ref<->row two-way highlight, lifted here since UnderstoodSummary
+  // and NeedSummaryList are siblings that both need to read and drive it.
+  // Effective highlight = sticky (click-to-pin) if set, else whatever's hovered/focused.
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [stickyId, setStickyId] = useState<string | null>(null);
+  const highlightedId = stickyId ?? hoveredId;
+
+  const handleEnter = (nodeId: string) => {
+    if (!stickyId) setHoveredId(nodeId);
+  };
+  const handleLeave = () => {
+    if (!stickyId) setHoveredId(null);
+  };
+  const handleToggle = (nodeId: string) => {
+    setStickyId((current) => (current === nodeId ? null : nodeId));
+    setHoveredId(null);
+  };
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setStickyId(null);
+        setHoveredId(null);
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   if (needs.length === 0) {
     return (
@@ -43,158 +68,33 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
 
   return (
     <>
-      <SectionHead index={1} title="What we understood" hint="each item links back to the moment it came from" />
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {needs.map((n) => (
-          <Card key={n.node.id} className="gap-2 py-4">
-            <CardContent className="space-y-2 px-[var(--card-px)]">
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-[length:var(--text-label)] font-bold text-primary">
-                  {n.node.id.split("-")[0]}
-                </span>
-                <Badge variant="outline">{n.category}</Badge>
-              </div>
-              <p className="text-sm font-semibold text-foreground">
-                {n.node.title.replace(/\s\(v\d+\)$/, "")}
-              </p>
-              <p className="min-h-9 text-[length:var(--text-label)] italic text-muted-foreground">
-                &ldquo;{n.quote}&rdquo;
-              </p>
-              <p className="border-t border-border pt-2 text-[length:var(--text-label)] text-muted-foreground">
-                {n.eliminated ? "2 approaches explored" : "1 approach accepted directly"}
-                {n.revisionCount > 0
-                  ? ` · ${n.revisionCount} revision${n.revisionCount > 1 ? "s" : ""}`
-                  : " · no revisions"}
-              </p>
-              <HoverCard>
-                <HoverCardTrigger asChild>
-                  <span className="cursor-default font-mono text-[length:var(--text-label)] text-muted-foreground">
-                    linked to your note
-                  </span>
-                </HoverCardTrigger>
-                <HoverCardContent className="space-y-2 text-xs">
-                  <p className="text-foreground italic">&ldquo;{n.quote}&rdquo;</p>
-                  <p className="text-muted-foreground">
-                    Chosen: {n.node.title.replace(/\s\(v\d+\)$/, "")}
-                  </p>
-                  {n.eliminated && (
-                    <p className="text-muted-foreground">Set aside: {n.eliminated.title}</p>
-                  )}
-                  <p className="text-muted-foreground">
-                    {n.revisionCount === 0 ? "No revisions" : `${n.revisionCount} revision${n.revisionCount > 1 ? "s" : ""}`}
-                  </p>
-                </HoverCardContent>
-              </HoverCard>
-            </CardContent>
-          </Card>
-        ))}
+      <SectionHead index={1} title="What we understood" />
+      <div className="space-y-3">
+        <UnderstoodSummary
+          needs={needs}
+          highlightedId={highlightedId}
+          onEnter={handleEnter}
+          onLeave={handleLeave}
+          onToggle={handleToggle}
+        />
+        <NeedSummaryList
+          needs={needs}
+          highlightedId={highlightedId}
+          onEnter={handleEnter}
+          onLeave={handleLeave}
+          onToggle={handleToggle}
+        />
       </div>
 
-      <SectionHead index={2} title="How we read your situation" hint="from your own feedback on the canvas" />
-      {themes.length > 0 && (
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-          <Card className="py-4">
-            <CardContent className="px-[var(--card-px)]">
-              <p className="mb-3 font-mono text-[length:var(--text-label)] font-bold uppercase tracking-wide text-muted-foreground">
-                Themes that shaped this
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {themes.map((t) => (
-                  <span
-                    key={`${t.type}-${t.theme}`}
-                    className={cn(
-                      "rounded-full border px-2.5 py-1 text-[length:var(--text-label)] font-medium",
-                      t.type === "like"
-                        ? "border-primary/30 bg-primary/5 text-primary"
-                        : "border-destructive/30 bg-destructive/5 text-destructive"
-                    )}
-                  >
-                    {t.type === "like" ? "+" : "−"} {t.theme}
-                  </span>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+      <SectionHead index={2} title="How we read your situation" />
+      <SessionSummarySection nodes={nodes} themes={themes} />
 
-      <SessionSummarySection nodes={nodes} />
-
-      <SectionHead index={3} title="Your prescription" hint="ranked by match, per need" />
-      <div className="flex flex-col gap-3">
+      <SectionHead index={3} title="Your prescription" />
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         {needs.map((n) => (
-          <Card key={n.node.id} className="py-4">
-            <CardContent className="space-y-2 px-[var(--card-px)]">
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-xs font-bold text-primary">
-                  {n.node.id.split("-")[0]}
-                </span>
-                <b className="text-sm">{n.node.title.replace(/\s\(v\d+\)$/, "")}</b>
-                <Badge variant={n.node.transparency === "sponsored" ? "destructive" : "default"}>
-                  {n.node.transparency === "sponsored" ? "Sponsored" : "Organic"}
-                </Badge>
-              </div>
-              <p className="text-[length:var(--text-label)] text-muted-foreground">{n.node.body}</p>
-              <div className="flex gap-6 pt-1">
-                {n.node.matchScore != null && (
-                  <div>
-                    <p className="font-mono text-lg font-bold tabular-nums text-foreground">
-                      {n.node.matchScore}%
-                    </p>
-                    <p className="text-[length:var(--text-meta)] text-muted-foreground">Match score</p>
-                  </div>
-                )}
-                {n.node.retentionRate != null && (
-                  <div>
-                    <p className="font-mono text-lg font-bold tabular-nums text-foreground">
-                      {n.node.retentionRate}%
-                    </p>
-                    <p className="text-[length:var(--text-meta)] text-muted-foreground">Active retention</p>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+          <PrescriptionCard key={n.node.id} need={n} />
         ))}
       </div>
-
-      {needsWithEvidence.length > 0 && (
-        <>
-          <SectionHead index={4} title="Why this should work" hint="every claim carries its source" />
-          <div className="flex flex-col gap-3">
-            {needsWithEvidence.map((n) => {
-              const data = n.peerOutcome!.bars.map((v, i) => ({
-                cohort: `Cohort ${i + 1}`,
-                outcome: v,
-              }));
-              return (
-                <Card key={n.node.id} className="py-4">
-                  <CardContent className="px-[var(--card-px)]">
-                    <div className="mb-1 flex items-center justify-between gap-2">
-                      <p className="text-sm font-semibold">
-                        {n.node.title.replace(/\s\(v\d+\)$/, "")}
-                      </p>
-                      <Badge variant="outline">
-                        n={n.peerOutcome!.cohortSize}
-                      </Badge>
-                    </div>
-                    <BarChart aspectRatio="3 / 1" data={data} xDataKey="cohort">
-                      <Grid horizontal />
-                      <Bar dataKey="outcome" fill="var(--color-chart-3)" lineCap={4} />
-                      <ChartTooltip showCrosshair={false} />
-                      <BarXAxis />
-                    </BarChart>
-                    <p className="mt-1 text-[length:var(--text-label)] text-muted-foreground">
-                      Cohort: {n.peerOutcome!.cohortDefinition}
-                    </p>
-                    {n.node.evidenceExamples && <EvidenceRow examples={n.node.evidenceExamples} />}
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        </>
-      )}
     </>
   );
 }

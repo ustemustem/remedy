@@ -29,6 +29,8 @@ export function ExperimentOverlay({
   onTextMetaChange,
   textLabel,
   onTextLabelChange,
+  textQuote,
+  onTextQuoteChange,
   linkWeight,
   onLinkWeightChange,
 }: {
@@ -49,6 +51,9 @@ export function ExperimentOverlay({
   /** Standard micro-label size (px) — mono headers, captions. */
   textLabel: number;
   onTextLabelChange: (px: number) => void;
+  /** Report Section 1's user-quote size (px) — must read above --text-label. */
+  textQuote: number;
+  onTextQuoteChange: (px: number) => void;
   /** Whether the dashboard's "View source"/"View report" links read as bolder. */
   linkWeight: "subtle" | "bold";
   onLinkWeightChange: (weight: "subtle" | "bold") => void;
@@ -175,6 +180,19 @@ export function ExperimentOverlay({
             step={0.5}
             value={textLabel}
             onChange={(e) => onTextLabelChange(Number(e.target.value))}
+            className="w-full accent-cta"
+          />
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] text-muted-foreground">Quote (report Section 1)</p>
+            <span className="text-[11px] tabular-nums text-muted-foreground">{textQuote}px</span>
+          </div>
+          <input
+            type="range"
+            min={11}
+            max={16}
+            step={0.5}
+            value={textQuote}
+            onChange={(e) => onTextQuoteChange(Number(e.target.value))}
             className="w-full accent-cta"
           />
         </div>

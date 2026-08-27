@@ -46,8 +46,11 @@ export default function Home() {
   // follow-ups that apply to both canvas and dashboard cards through shared
   // CSS custom properties.
   const [cardPadding, setCardPadding] = useState(16);
-  const [textMeta, setTextMeta] = useState(10);
-  const [textLabel, setTextLabel] = useState(11);
+  const [textMeta, setTextMeta] = useState(11);
+  const [textLabel, setTextLabel] = useState(12);
+  // Report Section 1's user-quote size — must stay above --text-label so a
+  // person's own sentence never reads smaller than the meta note about it.
+  const [textQuote, setTextQuote] = useState(13);
   const [linkWeight, setLinkWeight] = useState<"subtle" | "bold">("subtle");
   // The A/B/C choice cards inside a suggestion card's OptionPicker — kept
   // independently tunable from --radius-card (see globals.css) since it's a
@@ -79,6 +82,9 @@ export default function Home() {
   useEffect(() => {
     document.documentElement.style.setProperty("--text-label", `${textLabel}px`);
   }, [textLabel]);
+  useEffect(() => {
+    document.documentElement.style.setProperty("--text-quote", `${textQuote}px`);
+  }, [textQuote]);
   useEffect(() => {
     document.documentElement.dataset.linkWeight = linkWeight;
   }, [linkWeight]);
@@ -194,6 +200,8 @@ export default function Home() {
         onTextMetaChange={setTextMeta}
         textLabel={textLabel}
         onTextLabelChange={setTextLabel}
+        textQuote={textQuote}
+        onTextQuoteChange={setTextQuote}
         linkWeight={linkWeight}
         onLinkWeightChange={setLinkWeight}
       />

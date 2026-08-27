@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { deriveDashboardNeeds, deriveThemeEntries } from "@/lib/graph";
 import type { CanvasNodeData } from "@/lib/types";
 import { SessionSummarySection } from "./session-summary-section";
@@ -22,8 +23,43 @@ function SectionHead({ index, title, hint }: { index: number; title: string; hin
 }
 
 export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
-  const needs = deriveDashboardNeeds(nodes);
-  const themes = deriveThemeEntries(nodes);
+  // Memoized on `nodes` specifically: deriveDashboardNeeds/deriveThemeEntries
+  // build fresh arrays every call, and PrescriptionReport re-renders on every
+  // hover/focus during Section 1's ref<->row highlight below. Without this,
+  // UnderstoodSummary's `needs !== trackedNeeds` reference check (its signal
+  // to refetch) would see a "new" needs array on every hover and reset back
+  // to its loading state — the bug this fixes.
+  const needs = useMemo(() => deriveDashboardNeeds(nodes), [nodes]);
+  const themes = useMemo(() => deriveThemeEntries(nodes), [nodes]);
+
+  // Section 1's ref<->row two-way highlight, lifted here since UnderstoodSummary
+  // and NeedSummaryList are siblings that both need to read and drive it.
+  // Effective highlight = sticky (click-to-pin) if set, else whatever's hovered/focused.
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [stickyId, setStickyId] = useState<string | null>(null);
+  const highlightedId = stickyId ?? hoveredId;
+
+  const handleEnter = (nodeId: string) => {
+    if (!stickyId) setHoveredId(nodeId);
+  };
+  const handleLeave = () => {
+    if (!stickyId) setHoveredId(null);
+  };
+  const handleToggle = (nodeId: string) => {
+    setStickyId((current) => (current === nodeId ? null : nodeId));
+    setHoveredId(null);
+  };
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setStickyId(null);
+        setHoveredId(null);
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   if (needs.length === 0) {
     return (
@@ -37,8 +73,20 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
     <>
       <SectionHead index={1} title="What we understood" hint="drawn from your own words" />
       <div className="space-y-3">
-        <UnderstoodSummary needs={needs} />
-        <NeedSummaryList needs={needs} />
+        <UnderstoodSummary
+          needs={needs}
+          highlightedId={highlightedId}
+          onEnter={handleEnter}
+          onLeave={handleLeave}
+          onToggle={handleToggle}
+        />
+        <NeedSummaryList
+          needs={needs}
+          highlightedId={highlightedId}
+          onEnter={handleEnter}
+          onLeave={handleLeave}
+          onToggle={handleToggle}
+        />
       </div>
 
       <SectionHead index={2} title="How we read your situation" hint="from your own feedback on the canvas" />

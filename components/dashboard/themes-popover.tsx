@@ -16,7 +16,7 @@ export function ThemesPopover({ themes }: { themes: ThemeEntry[] }) {
           className="flex flex-shrink-0 items-center gap-1.5 self-center rounded-full border border-border px-3 py-1.5 text-[length:var(--text-label)] font-medium text-muted-foreground hover:border-foreground/30 hover:text-foreground"
         >
           <Tag className="h-3.5 w-3.5" />
-          Themes
+          Your reactions
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-auto">

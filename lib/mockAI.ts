@@ -26,6 +26,7 @@ import type {
   SessionSummary,
   SessionStats,
   EvidenceExample,
+  SummarySegment,
 } from "./types";
 import type { DashboardNeed } from "./graph";
 
@@ -77,6 +78,14 @@ function mockEvidenceExamples(): EvidenceExample[] {
   return [EVIDENCE_POOL.linkedin[i], EVIDENCE_POOL.app[i], EVIDENCE_POOL.company[i]];
 }
 
+function mockPeerOutcome(cohortSize: number, definition: string): CanvasNodeData["peerOutcome"] {
+  return {
+    cohortSize,
+    cohortDefinition: definition,
+    bars: [42, 58, 71, 65, 80, 74],
+  };
+}
+
 // Mocked heuristic, not real NLP — see docs/superpowers/specs/2026-08-03-reporting-screen-kpi-design.md.
 // A real sentiment/NLP call is a future seam here, same as everything else in this file.
 const NEGATIVE_NOTE_WORDS = ["wrong", "not what", "unclear", "don't", "instead", "too many", "confusing"];
@@ -91,14 +100,6 @@ function classifyRevisionTone(
   if (POSITIVE_NOTE_WORDS.some((w) => lower.includes(w))) return "positive";
   if (intent === "branch_new_direction") return "negative";
   return "neutral";
-}
-
-function mockPeerOutcome(cohortSize: number, definition: string): CanvasNodeData["peerOutcome"] {
-  return {
-    cohortSize,
-    cohortDefinition: definition,
-    bars: [42, 58, 71, 65, 80, 74],
-  };
 }
 
 function buildSentimentTimeline(nodes: CanvasNodeData[]): SentimentPoint[] {
@@ -166,32 +167,55 @@ export async function getSessionSummary(
   return { sentence, timeline };
 }
 
-function formatCategoryList(categories: string[]): string {
-  if (categories.length === 1) return categories[0];
-  if (categories.length === 2) return `${categories[0]} and ${categories[1]}`;
-  return `${categories.slice(0, -1).join(", ")}, and ${categories[categories.length - 1]}`;
+function refFor(n: DashboardNeed): SummarySegment {
+  return {
+    type: "ref",
+    content: n.node.title.replace(/\s\(v\d+\)$/, "").toLowerCase(),
+    nodeId: n.node.id,
+  };
+}
+
+function text(content: string): SummarySegment {
+  return { type: "text", content };
 }
 
 /**
  * Fake async: mocked "what we understood" summary, built from the real
- * category/quote data `deriveDashboardNeeds` already derived — not invented
- * copy. Seam for a future real LLM-generated summary, same pattern as
- * getSessionSummary.
+ * title/quote data `deriveDashboardNeeds` already derived — not invented
+ * copy. Every need gets exactly one `ref` segment pointing at its own node
+ * id, by construction — this mock can't currently produce a partial index
+ * (see docs/DASHBOARD_REPORT_HANDOFF.md's Section 1 notes for why that's
+ * an honest limitation of a templated mock, not a claim about how a real
+ * LLM would behave here). The renderer's degrade path (no refs, or a ref
+ * whose nodeId matches nothing) still has to exist for when this seam is
+ * replaced with a real model call — see UnderstoodSummary.
  */
-export async function getUnderstoodSummary(needs: DashboardNeed[]): Promise<string> {
+export async function getUnderstoodSummary(needs: DashboardNeed[]): Promise<SummarySegment[]> {
   await delay();
 
-  if (needs.length === 0) return "";
-
-  const categories = Array.from(new Set(needs.map((n) => n.category)));
-  const categoryList = formatCategoryList(categories).toLowerCase();
-  const primaryQuote = needs[0].quote;
+  if (needs.length === 0) return [];
 
   if (needs.length === 1) {
-    return `You came in with one clear need, around ${categoryList} — the core of it was "${primaryQuote}", which shaped the recommendation below.`;
+    return [text("You came in with one clear need: "), refFor(needs[0]), text(` — ${needs[0].quote}`)];
   }
 
-  return `You came in with ${needs.length} distinct needs, spanning ${categoryList}. The throughline was "${primaryQuote}" — everything below traces back to a specific moment in what you wrote, not a generic best practice.`;
+  if (needs.length === 2) {
+    return [text("You came in with two needs: "), refFor(needs[0]), text(" and "), refFor(needs[1]), text(".")];
+  }
+
+  const [first, ...rest] = needs;
+  const segments: SummarySegment[] = [
+    text(`You came in with ${needs.length} needs. The one shaping everything else was `),
+    refFor(first),
+    text(` — ${first.quote}. Around it sat `),
+  ];
+  rest.forEach((n, i) => {
+    segments.push(refFor(n));
+    if (i < rest.length - 2) segments.push(text(", "));
+    else if (i === rest.length - 2) segments.push(text(", and "));
+  });
+  segments.push(text("."));
+  return segments;
 }
 
 /**
@@ -683,7 +707,11 @@ export async function branchFromChoiceFraming(
     cardType: "plain",
     revisions: [{ revision: 1, title, body, note: null, createdAt: now }],
     activeRevision: 1,
-    origin: null,
+    // Skipping the A/B/C picker for your own words is just as much a
+    // redirect as branchFromNote — the report's "From your note" marker
+    // (need-summary-list.tsx) reads this same origin.intent, so both paths
+    // must set it the same way.
+    origin: { intent: "branch_new_direction", note: framing },
     createdUnderRevision: node.activeRevision ?? 1,
     matchScore: clamp(79 + delta, 40, 99),
     retentionRate: clamp(81 + delta, 40, 99),

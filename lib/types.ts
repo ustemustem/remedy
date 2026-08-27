@@ -80,6 +80,15 @@ export interface SessionSummary {
   timeline: SentimentPoint[];
 }
 
+/** Report Section 1's "what we understood" summary — a mix of plain text and
+ *  clickable references back to a specific DashboardNeed's row. `ref.nodeId`
+ *  must match a node id among the needs it was generated from; a ref whose
+ *  id matches nothing (or a summary with no refs at all) is a valid,
+ *  expected shape — the renderer degrades it to plain text. */
+export type SummarySegment =
+  | { type: "text"; content: string }
+  | { type: "ref"; content: string; nodeId: string };
+
 export interface EvidenceExample {
   kind: "linkedin" | "app" | "company";
   label: string;

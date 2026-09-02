@@ -36,6 +36,23 @@ function delay() {
   return sleep(500 + Math.random() * 1000);
 }
 
+/**
+ * Fake async: the canvas -> report loading transition's own promise (see
+ * animation handoff). Distinct from getUnderstoodSummary's per-paragraph
+ * delay below — this represents the overall "generating your prescription"
+ * work the loader animation is timed against, not a proxy for any one
+ * section's fetch. Owner-confirmed real generation time is ~2.5-4s, longer
+ * than any other mock delay in this file, which is why it's a separate
+ * function rather than reusing `delay()`.
+ */
+function reportGenerationDelay() {
+  return sleep(2500 + Math.random() * 1500);
+}
+
+export async function generateReport(): Promise<void> {
+  await reportGenerationDelay();
+}
+
 function id(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
 }

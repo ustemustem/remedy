@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChatEntryScreen } from "@/components/chat-entry-screen";
 import { CanvasScreen } from "@/components/canvas/canvas-screen";
 import { DashboardScreen } from "@/components/dashboard/dashboard-screen";
+import { ReportLoader } from "@/components/dashboard/report-loader";
 import { SessionSidebar } from "@/components/session-sidebar";
 import { ExperimentOverlay } from "@/components/experiment-overlay";
 import type { SourceStyle } from "@/components/canvas/source-style-context";
@@ -21,6 +22,12 @@ export default function Home() {
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The canvas -> report loading transition (ReportLoader) is a transient UI
+  // state, deliberately NOT part of `Step` — `Step` is also what
+  // SessionRecord.step persists to localStorage, and a session should never
+  // be saved mid-transition. `step` stays "canvas" until the loader's
+  // onReady fires, at which point it flips straight to "dashboard".
+  const [transitioning, setTransitioning] = useState(false);
 
   // Sessions live in localStorage — only readable after mount.
   useEffect(() => {
@@ -129,13 +136,20 @@ export default function Home() {
   );
 
   function handleFinalize(finalGraph: CanvasGraph) {
+    // Session persistence isn't gated on the loading transition — only the
+    // visual step change waits for ReportLoader's onReady.
     setGraph(finalGraph);
-    setStep("dashboard");
+    setTransitioning(true);
     if (!sessionId) return;
     const updated = updateSession(sessionId, finalGraph, "dashboard");
     if (updated) {
       setSessions((prev) => [updated, ...prev.filter((s) => s.id !== updated.id)]);
     }
+  }
+
+  function handleReportReady() {
+    setTransitioning(false);
+    setStep("dashboard");
   }
 
   function handleBackToCanvas() {
@@ -146,18 +160,21 @@ export default function Home() {
     setGraph(EMPTY_GRAPH);
     setSessionId(null);
     setError(null);
+    setTransitioning(false);
     setStep("chat");
   }
 
   function handleSelectSession(session: SessionRecord) {
     setSessionId(session.id);
     setGraph(session.graph);
+    setTransitioning(false);
     setStep(session.step === "chat" ? "chat" : session.step);
     setError(null);
   }
 
-  const content =
-    step === "canvas" ? (
+  const content = transitioning ? (
+      <ReportLoader onReady={handleReportReady} />
+    ) : step === "canvas" ? (
       <CanvasScreen
         key={sessionId ?? "new"}
         initialGraph={graph}

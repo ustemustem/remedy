@@ -23,8 +23,10 @@ import type {
   FeedbackContext,
   EvidenceExample,
   SummarySegment,
+  ReadoutSegment,
+  SessionStats,
 } from "./types";
-import type { DashboardNeed } from "./graph";
+import type { DashboardNeed, ThemeEntry } from "./graph";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -32,6 +34,23 @@ function sleep(ms: number) {
 
 function delay() {
   return sleep(500 + Math.random() * 1000);
+}
+
+/**
+ * Fake async: the canvas -> report loading transition's own promise (see
+ * animation handoff). Distinct from getUnderstoodSummary's per-paragraph
+ * delay below — this represents the overall "generating your prescription"
+ * work the loader animation is timed against, not a proxy for any one
+ * section's fetch. Owner-confirmed real generation time is ~2.5-4s, longer
+ * than any other mock delay in this file, which is why it's a separate
+ * function rather than reusing `delay()`.
+ */
+function reportGenerationDelay() {
+  return sleep(2500 + Math.random() * 1500);
+}
+
+export async function generateReport(): Promise<void> {
+  await reportGenerationDelay();
 }
 
 function id(prefix: string) {
@@ -130,6 +149,66 @@ export async function getUnderstoodSummary(needs: DashboardNeed[]): Promise<Summ
     else if (i === rest.length - 2) segments.push(text(", and "));
   });
   segments.push(text("."));
+  return segments;
+}
+
+function emphasis(content: string): ReadoutSegment {
+  return { content, emphasis: true };
+}
+
+function plain(content: string): ReadoutSegment {
+  return { content };
+}
+
+/**
+ * Templated (not async — no LLM seam intended here, just canned copy keyed
+ * off real derived data, same spirit as getUnderstoodSummary): the "how we
+ * read your situation" paragraph for report Section 2. Reads the same
+ * SessionStats and ThemeEntry[] the strip and theme columns already derive,
+ * so the three pieces never disagree with each other.
+ */
+/**
+ * Report Section 2's reading paragraph interprets what the strip's counts
+ * MEAN (focus, trustworthiness of the shortlist, how much correcting it
+ * took) rather than restating them — the strip already shows the raw
+ * numbers, so this sentence deliberately avoids repeating them back
+ * (report redesign, change B8).
+ */
+export function buildSessionReadout(stats: SessionStats, themes: ThemeEntry[]): ReadoutSegment[] {
+  const segments: ReadoutSegment[] = [];
+  const liked = themes.filter((t) => t.type === "like");
+  const disliked = themes.filter((t) => t.type === "dislike");
+
+  // Clause 1: focus/breadth — how much exploring it took to get here.
+  if (stats.pathCount === 0) {
+    segments.push(plain("Nothing here needed a detour, "), emphasis("you knew what fit"), plain(" from the first pass."));
+  } else if (stats.pathCount <= stats.selectedCount) {
+    segments.push(plain("A "), emphasis("focused search"), plain(": what you explored converged fast."));
+  } else {
+    segments.push(plain("You "), emphasis("cast a wide net"), plain(" before narrowing down. What made the cut had to earn it."));
+  }
+
+  // Clause 2: trustworthiness — how the shortlist held up to feedback.
+  if (disliked.length === 0 && liked.length > 0) {
+    segments.push(plain(" Nothing drew pushback, "), emphasis("a strong signal"), plain(" this shortlist holds up."));
+  } else if (disliked.length > 0 && liked.length > disliked.length) {
+    segments.push(plain(" More approval than pushback here: it survived "), emphasis("real scrutiny"), plain(", not just a first look."));
+  } else if (disliked.length > 0) {
+    segments.push(plain(" You read this "), emphasis("critically"), plain(": what's left reflects genuine scrutiny, not a first impression."));
+  }
+
+  // Clause 3: churn — how much correcting it took along the way.
+  const steeringCount = stats.noteCount + stats.ownFramingCount;
+  if (steeringCount === 0 && (stats.pathCount > 0 || liked.length + disliked.length > 0)) {
+    segments.push(plain(" And it took "), emphasis("little correcting"), plain(" along the way."));
+  } else if (steeringCount > 0) {
+    segments.push(
+      plain(" You "),
+      emphasis("steered it directly"),
+      plain(steeringCount > 1 ? ", in your own words, more than once." : ", in your own words, at least once.")
+    );
+  }
+
   return segments;
 }
 
@@ -395,7 +474,11 @@ export async function getOptionResponse(
     createdUnderRevision: node.activeRevision ?? 1,
     matchScore: clamp(79 + delta, 40, 99),
     retentionRate: clamp(81 + delta, 40, 99),
-    transparency: "sponsored",
+    // Picking an A/B/C option (or accepting your own typed framing) is an
+    // organic user decision, not a paid placement — sponsored should come
+    // from a genuinely distinct source later, not be the default outcome
+    // of the primary pick flow.
+    transparency: "organic",
     matchFactors: MOCK_MATCH_FACTORS,
     peerOutcome: mockPeerOutcome(268, "teams that picked this option, last 12 months"),
     evidenceExamples: mockEvidenceExamples(),
@@ -630,7 +713,11 @@ export async function branchFromChoiceFraming(
     createdUnderRevision: node.activeRevision ?? 1,
     matchScore: clamp(79 + delta, 40, 99),
     retentionRate: clamp(81 + delta, 40, 99),
-    transparency: "sponsored",
+    // Picking an A/B/C option (or accepting your own typed framing) is an
+    // organic user decision, not a paid placement — sponsored should come
+    // from a genuinely distinct source later, not be the default outcome
+    // of the primary pick flow.
+    transparency: "organic",
     matchFactors: MOCK_MATCH_FACTORS,
     peerOutcome: mockPeerOutcome(268, "teams that picked this option, last 12 months"),
     evidenceExamples: mockEvidenceExamples(),

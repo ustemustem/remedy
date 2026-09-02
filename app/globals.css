@@ -147,6 +147,26 @@
      line describing it (see docs handoff for Section 1) — a person's own
      sentence shouldn't be smaller than the system's note about it. */
   --text-quote: 13px;
+  /* Report Section 3: the compact scale above read too small for a section
+     leading with a hero recommendation (design review finding) — bumped
+     report-wide per owner decision rather than scoped to Section 3 alone,
+     so --text-title also replaces the old hardcoded 15px need-row title. */
+  --text-body: 14px;
+  --text-title: 20px;
+  --text-support-title: 17px;
+  --text-kpi: 26px;
+  --text-match: 30px;
+  /* Report redesign: exit/away easing, paired with the existing --ease-out
+     (entrances/decelerate) — used by the canvas -> report loader's erase
+     animation. */
+  --ease-away: cubic-bezier(0.55, 0, 0.85, 0.35);
+  /* Report redesign: card tone lifted just above the page (--background),
+     scoped to .report-scope only (see below) — --radius-card is already
+     12px project-wide (locked in earlier, contrary to the redesign
+     handoff's "4px -> 12px" assumption; not touched here since it already
+     matches). Definition on this screen now comes from the border + a soft
+     shadow rather than from a brightness gap against the page. */
+  --report-card: hsl(150 9% 92.5%);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
@@ -216,11 +236,282 @@
   }
 }
 
+/* Report Section 2: strip segments stagger in on mount, theme columns
+   follow shortly after. Same plain-CSS-plus-reduced-motion-override shape
+   as .need-row-in above. */
+.strip-segment-in {
+  opacity: 0;
+  transform: translateY(5px);
+  animation: strip-segment-in-kf 300ms var(--ease-out) forwards;
+}
+@keyframes strip-segment-in-kf {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.theme-column-in {
+  opacity: 0;
+  transform: translateY(6px);
+  animation: theme-column-in-kf 320ms var(--ease-out) forwards;
+}
+@keyframes theme-column-in-kf {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .strip-segment-in,
+  .theme-column-in {
+    transform: none;
+    animation-name: need-row-fade-kf;
+    animation-duration: 200ms;
+    animation-timing-function: ease;
+    animation-fill-mode: forwards;
+  }
+}
+
+/* Report Section 3: "See more" hidden-card reveal via the 0fr/1fr
+   grid-template-rows trick — animates open AND closed without measuring
+   height in JS, in either direction. */
+.see-more-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 320ms var(--ease-out);
+}
+.see-more-panel[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+.see-more-panel > div {
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  .see-more-panel {
+    transition: none;
+  }
+}
+
+/* Report Section 3: CSS-only info tooltip (no JS) — opens on hover, on
+   keyboard focus, and on tap (a real <button> picks up :focus on tap). */
+.info-tooltip {
+  position: relative;
+  display: inline-flex;
+}
+.info-tooltip-bubble {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%) translateY(2px);
+  width: max-content;
+  max-width: 240px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms var(--ease-out), transform 160ms var(--ease-out);
+  z-index: 10;
+}
+@media (hover: hover) and (pointer: fine) {
+  .info-tooltip:hover .info-tooltip-bubble {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+    pointer-events: auto;
+  }
+}
+.info-tooltip:focus-within .info-tooltip-bubble {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .info-tooltip-bubble {
+    transition: opacity 120ms ease;
+    transform: translateX(-50%) !important;
+  }
+}
+
+/* Report redesign: card surfaces are lifted just above the page instead of
+   defined by a brightness gap — a soft shadow + the existing border carry
+   the definition instead. .report-scope overrides --card for every Card
+   under it (report screen only; canvas cards are untouched). */
+.report-scope {
+  --card: var(--report-card);
+}
+.report-card-surface {
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--color-foreground) 6%, transparent);
+}
+
+/* Report redesign: header + each section + the terminal footer fade/rise in
+   on the report's mount (right after the loader's exit, or on a direct
+   session-sidebar restore into the dashboard step — both are "mount", so no
+   separate trigger prop is needed). Same shape as .need-row-in etc. */
+.report-reveal-in {
+  opacity: 0;
+  transform: translateY(8px);
+  animation: report-reveal-in-kf 500ms var(--ease-out) forwards;
+}
+@keyframes report-reveal-in-kf {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .report-reveal-in {
+    transform: none;
+    animation-name: need-row-fade-kf;
+    animation-duration: 200ms;
+    animation-timing-function: ease;
+    animation-fill-mode: forwards;
+  }
+}
+
+/* Canvas -> report loading transition (see docs handoff): the self-drawing
+   brand mark, reused as the "generating" loader. Path length is a fixed,
+   precomputed constant for public/logo-icon.svg's stroke — see
+   ReportLoader's own comment for why this isn't read from
+   path.getTotalLength() at runtime. */
+.rl-mark {
+  --rl-len: 505;
+}
+.rl-stroke {
+  stroke: var(--color-primary);
+  stroke-width: 24;
+  stroke-linecap: round;
+  fill: none;
+  stroke-dasharray: var(--rl-len);
+  stroke-dashoffset: 0;
+}
+.rl-dot {
+  fill: var(--color-cta);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.rl-shimmer {
+  stroke: color-mix(in srgb, white 60%, transparent);
+  stroke-width: 12;
+  stroke-linecap: round;
+  fill: none;
+  stroke-dasharray: 36 469;
+  stroke-dashoffset: var(--rl-len);
+  opacity: 0;
+}
+@keyframes rl-draw-in-kf {
+  from {
+    stroke-dashoffset: var(--rl-len);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes rl-dot-pop-kf {
+  0% {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1.14);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.rl-mark.rl-draw .rl-stroke {
+  animation: rl-draw-in-kf 1s var(--ease-out) both;
+}
+.rl-mark.rl-draw .rl-dot {
+  animation: rl-dot-pop-kf 0.5s var(--ease-out) 0.55s backwards;
+}
+@keyframes rl-sheen-kf {
+  from {
+    stroke-dashoffset: var(--rl-len);
+  }
+  to {
+    stroke-dashoffset: -5;
+  }
+}
+@keyframes rl-breathe-kf {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.09);
+  }
+}
+.rl-mark.rl-working .rl-shimmer {
+  opacity: 0.85;
+  animation: rl-sheen-kf 1.15s linear infinite;
+}
+.rl-mark.rl-working .rl-dot {
+  animation: rl-breathe-kf 1.4s var(--ease-out) infinite;
+}
+/* "Forward erase" — the stroke erases from its start point in the same
+   direction it drew; the dot leaves with it, swept off as the erase
+   reaches the tip. Both animate on the SAME duration/easing so mark and
+   dot read as one gesture leaving together. */
+@keyframes rl-erase-kf {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: calc(var(--rl-len) * -1);
+  }
+}
+@keyframes rl-dot-out-kf {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+.rl-mark.rl-exit .rl-stroke {
+  animation: rl-erase-kf 0.72s var(--ease-away) forwards;
+}
+.rl-mark.rl-exit .rl-dot {
+  animation: rl-dot-out-kf 0.72s var(--ease-away) forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rl-mark .rl-stroke,
+  .rl-mark .rl-dot,
+  .rl-mark .rl-shimmer {
+    animation: none !important;
+  }
+  .rl-mark .rl-stroke {
+    stroke-dashoffset: 0;
+  }
+  .rl-mark .rl-dot {
+    opacity: 1;
+    transform: none;
+  }
+  .rl-mark .rl-shimmer {
+    opacity: 0;
+  }
+}
+
+/* Report redesign: Export prints the report via the browser's own print
+   dialog (window.print()) rather than a generated .pdf — the user saves it
+   as a PDF from there if they want one. Hide everything that isn't the
+   report body itself. */
+@media print {
+  .report-print-hide {
+    display: none !important;
+  }
+  .report-scope {
+    max-width: none !important;
+  }
+}
+
 .dark {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
   --card-foreground: oklch(0.985 0 0);
+  --report-card: oklch(0.24 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.922 0 0);

@@ -455,7 +455,11 @@ export async function getOptionResponse(
     createdUnderRevision: node.activeRevision ?? 1,
     matchScore: clamp(79 + delta, 40, 99),
     retentionRate: clamp(81 + delta, 40, 99),
-    transparency: "sponsored",
+    // Picking an A/B/C option (or accepting your own typed framing) is an
+    // organic user decision, not a paid placement — sponsored should come
+    // from a genuinely distinct source later, not be the default outcome
+    // of the primary pick flow.
+    transparency: "organic",
     matchFactors: MOCK_MATCH_FACTORS,
     peerOutcome: mockPeerOutcome(268, "teams that picked this option, last 12 months"),
     evidenceExamples: mockEvidenceExamples(),
@@ -690,7 +694,11 @@ export async function branchFromChoiceFraming(
     createdUnderRevision: node.activeRevision ?? 1,
     matchScore: clamp(79 + delta, 40, 99),
     retentionRate: clamp(81 + delta, 40, 99),
-    transparency: "sponsored",
+    // Picking an A/B/C option (or accepting your own typed framing) is an
+    // organic user decision, not a paid placement — sponsored should come
+    // from a genuinely distinct source later, not be the default outcome
+    // of the primary pick flow.
+    transparency: "organic",
     matchFactors: MOCK_MATCH_FACTORS,
     peerOutcome: mockPeerOutcome(268, "teams that picked this option, last 12 months"),
     evidenceExamples: mockEvidenceExamples(),

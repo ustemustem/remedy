@@ -216,6 +216,42 @@
   }
 }
 
+/* Report Section 2: strip segments stagger in on mount, theme columns
+   follow shortly after. Same plain-CSS-plus-reduced-motion-override shape
+   as .need-row-in above. */
+.strip-segment-in {
+  opacity: 0;
+  transform: translateY(5px);
+  animation: strip-segment-in-kf 300ms var(--ease-out) forwards;
+}
+@keyframes strip-segment-in-kf {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.theme-column-in {
+  opacity: 0;
+  transform: translateY(6px);
+  animation: theme-column-in-kf 320ms var(--ease-out) forwards;
+}
+@keyframes theme-column-in-kf {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .strip-segment-in,
+  .theme-column-in {
+    transform: none;
+    animation-name: need-row-fade-kf;
+    animation-duration: 200ms;
+    animation-timing-function: ease;
+    animation-fill-mode: forwards;
+  }
+}
+
 .dark {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);

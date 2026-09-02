@@ -23,8 +23,10 @@ import type {
   FeedbackContext,
   EvidenceExample,
   SummarySegment,
+  ReadoutSegment,
+  SessionStats,
 } from "./types";
-import type { DashboardNeed } from "./graph";
+import type { DashboardNeed, ThemeEntry } from "./graph";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -130,6 +132,64 @@ export async function getUnderstoodSummary(needs: DashboardNeed[]): Promise<Summ
     else if (i === rest.length - 2) segments.push(text(", and "));
   });
   segments.push(text("."));
+  return segments;
+}
+
+function emphasis(content: string): ReadoutSegment {
+  return { content, emphasis: true };
+}
+
+function plain(content: string): ReadoutSegment {
+  return { content };
+}
+
+/**
+ * Templated (not async — no LLM seam intended here, just canned copy keyed
+ * off real derived data, same spirit as getUnderstoodSummary): the "how we
+ * read your situation" paragraph for report Section 2. Reads the same
+ * SessionStats and ThemeEntry[] the strip and theme columns already derive,
+ * so the three pieces never disagree with each other.
+ */
+export function buildSessionReadout(stats: SessionStats, themes: ThemeEntry[]): ReadoutSegment[] {
+  const segments: ReadoutSegment[] = [];
+
+  if (stats.pathCount > 0) {
+    segments.push(
+      plain(`You worked through ${stats.pathCount} distinct path${stats.pathCount > 1 ? "s" : ""} and landed on `),
+      emphasis(`${stats.selectedCount} recommendation${stats.selectedCount !== 1 ? "s" : ""}`),
+      plain(" to move forward with.")
+    );
+  } else {
+    segments.push(
+      plain("You landed on "),
+      emphasis(`${stats.selectedCount} recommendation${stats.selectedCount !== 1 ? "s" : ""}`),
+      plain(" to move forward with.")
+    );
+  }
+
+  const liked = themes.filter((t) => t.type === "like");
+  const disliked = themes.filter((t) => t.type === "dislike");
+
+  if (liked.length > 0 && disliked.length > 0) {
+    segments.push(
+      plain(" Along the way you responded well to "),
+      emphasis(liked[0].theme),
+      plain(liked.length > 1 ? ", among other things, but pushed back on " : ", but pushed back on "),
+      emphasis(disliked[0].theme),
+      plain(".")
+    );
+  } else if (liked.length > 0) {
+    segments.push(plain(" Along the way you responded well to "), emphasis(liked[0].theme), plain("."));
+  } else if (disliked.length > 0) {
+    segments.push(plain(" Along the way you pushed back on "), emphasis(disliked[0].theme), plain("."));
+  }
+
+  if (stats.noteCount > 0) {
+    segments.push(
+      plain(` You left ${stats.noteCount} note${stats.noteCount > 1 ? "s" : ""} steering the recommendations directly.`)
+    );
+  }
+
   return segments;
 }
 

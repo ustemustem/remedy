@@ -78,6 +78,14 @@ export type SummarySegment =
   | { type: "text"; content: string }
   | { type: "ref"; content: string; nodeId: string };
 
+/** Report Section 2's reading paragraph — plain text with no node refs
+ *  (unlike SummarySegment), just an optional emphasis flag for the
+ *  font-medium treatment on the paragraph's most telling phrases. */
+export interface ReadoutSegment {
+  content: string;
+  emphasis?: boolean;
+}
+
 export interface EvidenceExample {
   kind: "linkedin" | "app" | "company";
   label: string;

@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { deriveDashboardNeeds, deriveThemeEntries } from "@/lib/graph";
+import { deriveDashboardFeed, deriveDashboardNeeds, deriveThemeEntries } from "@/lib/graph";
 import type { CanvasNodeData } from "@/lib/types";
 import { SessionSummarySection } from "./session-summary-section";
 import { UnderstoodSummary } from "./understood-summary";
 import { NeedSummaryList } from "./need-summary-list";
 import { PrescriptionCard } from "./prescription-card";
+import { PrescriptionCardCompact } from "./prescription-card-compact";
+import { SeeMoreButton } from "./see-more-button";
 
 function SectionHead({ index, title }: { index: number; title: string }) {
   return (
@@ -28,6 +30,8 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
   // to its loading state — the bug this fixes.
   const needs = useMemo(() => deriveDashboardNeeds(nodes), [nodes]);
   const themes = useMemo(() => deriveThemeEntries(nodes), [nodes]);
+  const feed = useMemo(() => deriveDashboardFeed(needs), [needs]);
+  const [showHidden, setShowHidden] = useState(false);
 
   // Section 1's ref<->row two-way highlight, lifted here since UnderstoodSummary
   // and NeedSummaryList are siblings that both need to read and drive it.
@@ -90,10 +94,27 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
       <SessionSummarySection nodes={nodes} themes={themes} />
 
       <SectionHead index={3} title="Your prescription" />
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        {needs.map((n) => (
-          <PrescriptionCard key={n.node.id} need={n} />
+      <div className="space-y-3">
+        {feed.hero && <PrescriptionCard need={feed.hero} />}
+        {feed.support.map((n) => (
+          <PrescriptionCardCompact key={n.node.id} need={n} />
         ))}
+        {feed.hidden.length > 0 && (
+          <>
+            <div className="see-more-panel" data-open={showHidden}>
+              <div className="space-y-3">
+                {feed.hidden.map((n) => (
+                  <PrescriptionCardCompact key={n.node.id} need={n} />
+                ))}
+              </div>
+            </div>
+            <SeeMoreButton
+              count={feed.hidden.length}
+              expanded={showHidden}
+              onToggle={() => setShowHidden((v) => !v)}
+            />
+          </>
+        )}
       </div>
     </>
   );

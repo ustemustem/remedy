@@ -51,7 +51,7 @@ export function NeedSummaryList({
             style={{ animationDelay: `${Math.min(i, MAX_STAGGER_STEPS) * STAGGER_MS}ms` }}
           >
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-              <span className="text-[15px] font-semibold tracking-[-0.005em] text-foreground">
+              <span className="text-[length:var(--text-title)] font-semibold tracking-[-0.005em] text-foreground">
                 {n.node.title.replace(/\s\(v\d+\)$/, "")}
               </span>
               <Badge variant="outline" className="text-[length:var(--text-meta)]">

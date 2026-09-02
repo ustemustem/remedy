@@ -147,6 +147,15 @@
      line describing it (see docs handoff for Section 1) — a person's own
      sentence shouldn't be smaller than the system's note about it. */
   --text-quote: 13px;
+  /* Report Section 3: the compact scale above read too small for a section
+     leading with a hero recommendation (design review finding) — bumped
+     report-wide per owner decision rather than scoped to Section 3 alone,
+     so --text-title also replaces the old hardcoded 15px need-row title. */
+  --text-body: 14px;
+  --text-title: 20px;
+  --text-support-title: 17px;
+  --text-kpi: 26px;
+  --text-match: 30px;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
@@ -249,6 +258,63 @@
     animation-duration: 200ms;
     animation-timing-function: ease;
     animation-fill-mode: forwards;
+  }
+}
+
+/* Report Section 3: "See more" hidden-card reveal via the 0fr/1fr
+   grid-template-rows trick — animates open AND closed without measuring
+   height in JS, in either direction. */
+.see-more-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 320ms var(--ease-out);
+}
+.see-more-panel[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+.see-more-panel > div {
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  .see-more-panel {
+    transition: none;
+  }
+}
+
+/* Report Section 3: CSS-only info tooltip (no JS) — opens on hover, on
+   keyboard focus, and on tap (a real <button> picks up :focus on tap). */
+.info-tooltip {
+  position: relative;
+  display: inline-flex;
+}
+.info-tooltip-bubble {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%) translateY(2px);
+  width: max-content;
+  max-width: 240px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms var(--ease-out), transform 160ms var(--ease-out);
+  z-index: 10;
+}
+@media (hover: hover) and (pointer: fine) {
+  .info-tooltip:hover .info-tooltip-bubble {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+    pointer-events: auto;
+  }
+}
+.info-tooltip:focus-within .info-tooltip-bubble {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .info-tooltip-bubble {
+    transition: opacity 120ms ease;
+    transform: translateX(-50%) !important;
   }
 }
 

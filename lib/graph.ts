@@ -148,6 +148,64 @@ export function deriveDashboardNeeds(nodes: CanvasNodeData[]): DashboardNeed[] {
 }
 
 /**
+ * Report Section 3's hero/support/hidden ranking. Sorted by matchScore
+ * descending (a missing score sorts last, never first). The first
+ * non-sponsored item is always the hero — a paid placement never takes the
+ * top slot, whatever its score. If every need is sponsored, there is no
+ * hero at all: everything falls through to support/hidden in ranked order
+ * rather than crashing or fabricating a hero.
+ */
+export interface DashboardFeed {
+  hero: DashboardNeed | null;
+  support: DashboardNeed[];
+  hidden: DashboardNeed[];
+}
+
+export function deriveDashboardFeed(needs: DashboardNeed[]): DashboardFeed {
+  const sorted = [...needs].sort(
+    (a, b) => (b.node.matchScore ?? -Infinity) - (a.node.matchScore ?? -Infinity)
+  );
+  const hero = sorted.find((n) => n.node.transparency !== "sponsored") ?? null;
+  const rest = sorted.filter((n) => n !== hero);
+
+  return {
+    hero,
+    support: rest.slice(0, 2),
+    hidden: rest.slice(2),
+  };
+}
+
+/** Section 3's "teams like you vs typical team" evidence comparison. */
+export interface EvidenceComparison {
+  you: number;
+  typical: number;
+  deltaPts: number;
+}
+
+/**
+ * PeerOutcome doesn't carry an explicit "your segment" vs "typical team"
+ * split yet (see Section 3 handoff open question 1) — real per-segment
+ * values are expected once the planned LLM sourcing work lands and can
+ * export whatever comparison fields it needs at that point. Until then
+ * this is a documented mock rule, not a real derivation: the last bar
+ * stands in for "your segment", the average of the rest for "typical
+ * team". `PeerOutcome`'s shape is intentionally left alone rather than
+ * growing new fields for a mock that's about to be replaced.
+ */
+export function deriveEvidenceComparison(peerOutcome?: PeerOutcome): EvidenceComparison | null {
+  if (!peerOutcome || peerOutcome.bars.length === 0) return null;
+  const bars = peerOutcome.bars;
+  const you = bars[bars.length - 1];
+  const rest = bars.slice(0, -1);
+  const typical = rest.length > 0 ? rest.reduce((a, b) => a + b, 0) / rest.length : you;
+  return {
+    you: Math.round(you),
+    typical: Math.round(typical),
+    deltaPts: Math.round(you - typical),
+  };
+}
+
+/**
  * Behavioral KPI counts for the reporting screen — every field counts an
  * existing, already-tracked signal (feedback, selected, groupId, picked,
  * userFraming, revisions[].note). No new state, no fabricated data.

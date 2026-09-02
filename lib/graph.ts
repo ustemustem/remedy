@@ -154,6 +154,16 @@ export function deriveDashboardNeeds(nodes: CanvasNodeData[]): DashboardNeed[] {
  * top slot, whatever its score. If every need is sponsored, there is no
  * hero at all: everything falls through to support/hidden in ranked order
  * rather than crashing or fabricating a hero.
+ *
+ * Dedup rule (owner decision, report redesign): a need sharing the hero's
+ * `groupId` is dropped from support/hidden entirely, not just deprioritized.
+ * `groupId` already tracks "same underlying recommendation, however many
+ * revisions/continuations deep" (see CanvasNodeData.groupId) — a selected
+ * node AND its own "Prefer this option" continuation both selected would
+ * otherwise rank as two near-identical cards (same framing, different
+ * matchScore). Only the hero's own chain is deduped; two DIFFERENT chains
+ * that happen to look similar are left alone, since there's no rule today
+ * for detecting content similarity across genuinely different chains.
  */
 export interface DashboardFeed {
   hero: DashboardNeed | null;
@@ -166,7 +176,11 @@ export function deriveDashboardFeed(needs: DashboardNeed[]): DashboardFeed {
     (a, b) => (b.node.matchScore ?? -Infinity) - (a.node.matchScore ?? -Infinity)
   );
   const hero = sorted.find((n) => n.node.transparency !== "sponsored") ?? null;
-  const rest = sorted.filter((n) => n !== hero);
+  const rest = sorted.filter((n) => {
+    if (n === hero) return false;
+    if (hero?.node.groupId && n.node.groupId === hero.node.groupId) return false;
+    return true;
+  });
 
   return {
     hero,

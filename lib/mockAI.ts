@@ -167,43 +167,45 @@ function plain(content: string): ReadoutSegment {
  * SessionStats and ThemeEntry[] the strip and theme columns already derive,
  * so the three pieces never disagree with each other.
  */
+/**
+ * Report Section 2's reading paragraph interprets what the strip's counts
+ * MEAN (focus, trustworthiness of the shortlist, how much correcting it
+ * took) rather than restating them — the strip already shows the raw
+ * numbers, so this sentence deliberately avoids repeating them back
+ * (report redesign, change B8).
+ */
 export function buildSessionReadout(stats: SessionStats, themes: ThemeEntry[]): ReadoutSegment[] {
   const segments: ReadoutSegment[] = [];
-
-  if (stats.pathCount > 0) {
-    segments.push(
-      plain(`You worked through ${stats.pathCount} distinct path${stats.pathCount > 1 ? "s" : ""} and landed on `),
-      emphasis(`${stats.selectedCount} recommendation${stats.selectedCount !== 1 ? "s" : ""}`),
-      plain(" to move forward with.")
-    );
-  } else {
-    segments.push(
-      plain("You landed on "),
-      emphasis(`${stats.selectedCount} recommendation${stats.selectedCount !== 1 ? "s" : ""}`),
-      plain(" to move forward with.")
-    );
-  }
-
   const liked = themes.filter((t) => t.type === "like");
   const disliked = themes.filter((t) => t.type === "dislike");
 
-  if (liked.length > 0 && disliked.length > 0) {
-    segments.push(
-      plain(" Along the way you responded well to "),
-      emphasis(liked[0].theme),
-      plain(liked.length > 1 ? ", among other things, but pushed back on " : ", but pushed back on "),
-      emphasis(disliked[0].theme),
-      plain(".")
-    );
-  } else if (liked.length > 0) {
-    segments.push(plain(" Along the way you responded well to "), emphasis(liked[0].theme), plain("."));
-  } else if (disliked.length > 0) {
-    segments.push(plain(" Along the way you pushed back on "), emphasis(disliked[0].theme), plain("."));
+  // Clause 1: focus/breadth — how much exploring it took to get here.
+  if (stats.pathCount === 0) {
+    segments.push(plain("Nothing here needed a detour, "), emphasis("you knew what fit"), plain(" from the first pass."));
+  } else if (stats.pathCount <= stats.selectedCount) {
+    segments.push(plain("A "), emphasis("focused search"), plain(": what you explored converged fast."));
+  } else {
+    segments.push(plain("You "), emphasis("cast a wide net"), plain(" before narrowing down. What made the cut had to earn it."));
   }
 
-  if (stats.noteCount > 0) {
+  // Clause 2: trustworthiness — how the shortlist held up to feedback.
+  if (disliked.length === 0 && liked.length > 0) {
+    segments.push(plain(" Nothing drew pushback, "), emphasis("a strong signal"), plain(" this shortlist holds up."));
+  } else if (disliked.length > 0 && liked.length > disliked.length) {
+    segments.push(plain(" More approval than pushback here: it survived "), emphasis("real scrutiny"), plain(", not just a first look."));
+  } else if (disliked.length > 0) {
+    segments.push(plain(" You read this "), emphasis("critically"), plain(": what's left reflects genuine scrutiny, not a first impression."));
+  }
+
+  // Clause 3: churn — how much correcting it took along the way.
+  const steeringCount = stats.noteCount + stats.ownFramingCount;
+  if (steeringCount === 0 && (stats.pathCount > 0 || liked.length + disliked.length > 0)) {
+    segments.push(plain(" And it took "), emphasis("little correcting"), plain(" along the way."));
+  } else if (steeringCount > 0) {
     segments.push(
-      plain(` You left ${stats.noteCount} note${stats.noteCount > 1 ? "s" : ""} steering the recommendations directly.`)
+      plain(" You "),
+      emphasis("steered it directly"),
+      plain(steeringCount > 1 ? ", in your own words, more than once." : ", in your own words, at least once.")
     );
   }
 

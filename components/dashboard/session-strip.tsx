@@ -12,9 +12,11 @@ interface Segment {
 }
 
 /**
- * "How we read your situation" summary strip — flex-1 per segment always,
- * however few segments there are (a quiet 2-segment session stretching to
- * ~430px per number is an accepted tradeoff for keeping one layout mode).
+ * "How we read your situation" summary strip — segments size to their own
+ * content and left-align (report redesign, reverses the earlier flex-1
+ * decision: a quiet 2-segment session used to stretch each number to
+ * ~430px, reading as two lonely numbers on an otherwise empty row; sizing
+ * to content instead gives a tight, intentional cluster at any count).
  * Zero-value metrics don't get a segment at all, so the strip shrinks with
  * the session instead of padding out with empty counts.
  */
@@ -31,14 +33,14 @@ export function SessionStrip({ stats }: { stats: SessionStats }) {
   if (segments.length === 0) return null;
 
   return (
-    <div className="flex w-full flex-wrap">
+    <div className="flex w-full flex-wrap justify-start">
       {segments.map((s, i) => (
         <div
           key={s.label}
           className={cn(
-            "strip-segment-in flex-1 basis-28",
-            i > 0 && "pl-3.5 max-[560px]:pl-0",
-            i < segments.length - 1 && "border-r border-border pr-3.5 max-[560px]:border-r-0 max-[560px]:pr-0"
+            "strip-segment-in shrink-0",
+            i > 0 && "pl-3.5",
+            i < segments.length - 1 && "border-r border-border pr-3.5"
           )}
           style={{ animationDelay: `${i * STAGGER_MS}ms` }}
         >

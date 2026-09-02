@@ -119,11 +119,11 @@ export function PrescriptionCard({ need }: { need: DashboardNeed }) {
   }
 
   return (
-    <Card className="py-4">
+    <Card className="report-card-surface py-4">
       <CardContent className="space-y-3 px-[var(--card-px)]">
         <div className="flex items-center justify-between">
           <span className="font-mono text-xs font-bold uppercase tracking-wide text-primary">
-            {node.id.split("-")[0]}
+            Start here
           </span>
           <Badge>Top match</Badge>
         </div>
@@ -142,7 +142,7 @@ export function PrescriptionCard({ need }: { need: DashboardNeed }) {
         <p className="text-[length:var(--text-body)] text-muted-foreground">{node.body}</p>
 
         {comparison && peerOutcome && (
-          <div className="space-y-2 border-t border-border pt-3">
+          <div className="max-w-[460px] space-y-2 border-t border-border pt-3">
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1 text-[length:var(--text-label)] font-medium text-foreground">
                 Evidence

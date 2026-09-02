@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { ArrowLeft, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PrescriptionReport } from "./prescription-report";
@@ -16,9 +17,18 @@ export function DashboardScreen({
   onBackToCanvas: () => void;
   onReset: () => void;
 }) {
+  // Report redesign / animation handoff: on mount (right after the loader's
+  // exit, or a direct session-sidebar restore into this step) focus moves
+  // into the report container — an intentional a11y handoff from the
+  // loader's status region, not just "focus starts wherever the DOM puts it".
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    scrollRef.current?.focus();
+  }, []);
+
   return (
-    <div className="flex h-full flex-col bg-background">
-      <header className="flex shrink-0 items-center justify-between border-b border-border px-4 py-2.5">
+    <div className="report-scope flex h-full flex-col bg-background">
+      <header className="report-print-hide report-reveal-in flex shrink-0 items-center justify-between border-b border-border px-4 py-2.5">
         <div className="space-y-1">
           {/* eslint-disable-next-line @next/next/no-img-element -- static local SVG, no optimization needed */}
           <img src="/logo.svg" alt="Remedy" className="h-7 w-auto" />
@@ -39,16 +49,20 @@ export function DashboardScreen({
       </header>
 
       {/* This screen's own scroll region — the report body can run much
-          taller than the viewport (KPI cards, charts, evidence rows), but
-          only THIS area should scroll; the header above stays put and the
-          session sidebar (a sibling outside this component, in page.tsx)
-          has its own independent scroll region. */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-5xl px-4 pb-16">
+          taller than the viewport, but only THIS area should scroll; the
+          header above stays put and the session sidebar (a sibling outside
+          this component, in page.tsx) has its own independent scroll
+          region. tabIndex=-1 + the focus effect above make this the
+          loader's a11y handoff target without adding it to normal Tab
+          order. */}
+      <div ref={scrollRef} tabIndex={-1} className="flex-1 overflow-y-auto outline-none">
+        <div className="mx-auto max-w-[780px] px-4 pb-16">
           <PrescriptionReport nodes={graph.nodes} />
         </div>
 
-        <ExitPoll />
+        <div className="report-print-hide">
+          <ExitPoll />
+        </div>
       </div>
     </div>
   );

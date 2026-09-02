@@ -19,13 +19,14 @@ export function PrescriptionCardCompact({ need }: { need: DashboardNeed }) {
   const { node, peerOutcome } = need;
   const comparison = deriveEvidenceComparison(peerOutcome);
   const evidenceCount = (peerOutcome ? 1 : 0) + (node.evidenceExamples?.length ?? 0);
+  const hasStatLine = Boolean(comparison) || node.retentionRate != null;
 
   return (
-    <Card className="py-4">
+    <Card className="report-card-surface py-4">
       <CardContent className="space-y-3 px-[var(--card-px)]">
         <div className="flex items-center gap-2">
           <span className="font-mono text-xs font-bold uppercase tracking-wide text-primary">
-            {node.id.split("-")[0]}
+            Alternative path
           </span>
           {node.transparency === "sponsored" && (
             <Badge className="bg-cta text-cta-foreground">Sponsored</Badge>
@@ -37,13 +38,36 @@ export function PrescriptionCardCompact({ need }: { need: DashboardNeed }) {
             <p className="truncate text-[length:var(--text-support-title)] font-semibold text-foreground">
               {node.title.replace(/\s\(v\d+\)$/, "")}
             </p>
-            {comparison && peerOutcome && (
+            <p className="line-clamp-1 text-[length:var(--text-label)] text-muted-foreground">
+              {node.body}
+            </p>
+            {hasStatLine && (
               <p className="flex flex-wrap items-baseline gap-x-1.5 text-[length:var(--text-label)]">
-                <span className="font-mono font-bold text-primary">+{comparison.deltaPts}%</span>
-                <span className="text-muted-foreground">faster work</span>
-                <span className="font-mono text-muted-foreground">
-                  &middot; n={peerOutcome.cohortSize}
-                </span>
+                {comparison && (
+                  <>
+                    <span className="font-mono font-bold text-primary">
+                      +{comparison.deltaPts}%
+                    </span>
+                    <span className="text-muted-foreground">faster work</span>
+                  </>
+                )}
+                {node.retentionRate != null && (
+                  <>
+                    {comparison && <span className="text-border">&middot;</span>}
+                    <span className="font-mono font-bold text-foreground">
+                      {node.retentionRate}%
+                    </span>
+                    <span className="text-muted-foreground">retention</span>
+                  </>
+                )}
+                {peerOutcome && (
+                  <>
+                    <span className="text-border">&middot;</span>
+                    <span className="font-mono text-muted-foreground">
+                      n={peerOutcome.cohortSize}
+                    </span>
+                  </>
+                )}
               </p>
             )}
           </div>

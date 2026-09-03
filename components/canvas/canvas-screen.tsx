@@ -16,6 +16,14 @@ import ReactFlow, {
 import "reactflow/dist/style.css";
 import { RotateCcw, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { RxNode, type RxNodeData } from "./rx-node";
 import { RxEdge } from "./rx-edge";
 import { GroupFrameNode, type GroupFrameNodeData } from "./group-frame-node";
@@ -994,6 +1002,21 @@ export function CanvasScreen({
 
   const hasSelectedNode = graph.nodes.some((n) => n.selected);
   const selectedCount = graph.nodes.filter((n) => n.selected).length;
+  // A user who only ever follows the one path the canvas first suggests
+  // tends to keep following it rather than doubling back to try another —
+  // finalizing with a single selection (and no like/dislike feedback given
+  // anywhere) is the tunneling case the report's Section 02/03 read sparse
+  // for. This is a one-time confirmation, not a hard block.
+  const feedbackCount = graph.nodes.filter((n) => n.feedback).length;
+  const [showFinalizeConfirm, setShowFinalizeConfirm] = useState(false);
+
+  function handleFinalizeClick() {
+    if (selectedCount < 2 && feedbackCount === 0) {
+      setShowFinalizeConfirm(true);
+      return;
+    }
+    onFinalize(graph);
+  }
 
   // Rebuild React Flow nodes/edges whenever the domain graph or pending set
   // changes. Cards are placed at their RAW auto-layout position here — drag
@@ -1453,13 +1476,40 @@ export function CanvasScreen({
             variant="cta"
             size="sm"
             disabled={!hasSelectedNode}
-            onClick={() => onFinalize(graph)}
+            onClick={handleFinalizeClick}
           >
             <Send className="h-3.5 w-3.5" />
             Finalize
           </Button>
         </div>
       </header>
+
+      <Dialog open={showFinalizeConfirm} onOpenChange={setShowFinalizeConfirm}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Finalize with just one recommendation?</DialogTitle>
+            <DialogDescription>
+              You&rsquo;ve selected one path and haven&rsquo;t reacted to any cards. Exploring
+              another suggestion, or liking/disliking a few, gives your report more to work with.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setShowFinalizeConfirm(false)}>
+              Keep exploring
+            </Button>
+            <Button
+              variant="cta"
+              size="sm"
+              onClick={() => {
+                setShowFinalizeConfirm(false);
+                onFinalize(graph);
+              }}
+            >
+              Finalize anyway
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="relative flex-1">
         <SoftnessProvider value={softness}>

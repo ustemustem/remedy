@@ -12,36 +12,44 @@ const OUTCOME_TOOLTIP =
   "Median change for teams that made this change, versus their own pace before. Half did better, half did less.";
 const RETENTION_TOOLTIP = "Share of those teams still using the change six months on.";
 const EVIDENCE_TOOLTIP =
-  'How much faster teams worked after this change. "Teams like you" are close to your size and setup. "Typical team" is the median across all n teams.';
+  'How much faster teams worked after this change. "Teams like you" are close to your size and setup. "Typical team" is the middle result across every team we have data for.';
 
-function KpiCell({
+/**
+ * One figure in the card's stat row. Every figure in that row renders at the
+ * SAME size (--text-body) — outcome, retention and cohort size are all
+ * measures of one cohort, so sizing one above the others states a hierarchy
+ * that isn't there. Role is carried by colour instead: primary for the
+ * outcome (the lead signal, and the only green thing in the card), plain
+ * foreground for retention, muted for the sample size.
+ */
+function StatFigure({
   value,
-  label,
+  unit,
   tooltip,
   tone,
-  bordered,
 }: {
   value: string;
-  label: string;
-  tooltip: string;
-  tone: "primary" | "neutral";
-  bordered: boolean;
+  unit: string;
+  tooltip?: string;
+  tone: "primary" | "neutral" | "muted";
 }) {
   return (
-    <div className={cn("flex-1 px-4 first:pl-0", bordered && "border-l border-border")}>
-      <div
+    <>
+      <span
         className={cn(
-          "font-mono text-[length:var(--text-kpi)] font-bold leading-none",
-          tone === "primary" ? "text-primary" : "text-foreground"
+          "font-mono text-[length:var(--text-body)] font-bold leading-none",
+          tone === "primary" && "text-primary",
+          tone === "neutral" && "text-foreground",
+          tone === "muted" && "text-muted-foreground"
         )}
       >
         {value}
-      </div>
-      <div className="mt-1 flex items-center gap-1 text-[length:var(--text-meta)] uppercase tracking-wide text-muted-foreground">
-        {label}
-        <InfoTooltip text={tooltip} />
-      </div>
-    </div>
+      </span>
+      <span className="flex items-center gap-1 text-[length:var(--text-label)] text-muted-foreground">
+        {unit}
+        {tooltip && <InfoTooltip text={tooltip} />}
+      </span>
+    </>
   );
 }
 
@@ -87,62 +95,90 @@ function EvidenceBar({
   );
 }
 
+/**
+ * Section 03's hero card. Shares one anatomy with PrescriptionCardCompact —
+ * match score in a left column, then title / body / stat row — so the two
+ * card types read as one component at two sizes rather than as two different
+ * components. The hero is the larger size: a bigger match score, a full body,
+ * and the evidence comparison the alternative cards don't carry.
+ */
 export function PrescriptionCard({ need }: { need: DashboardNeed }) {
   const { node, peerOutcome } = need;
   const comparison = deriveEvidenceComparison(peerOutcome);
-
-  const cells: { value: string; label: string; tooltip: string; tone: "primary" | "neutral" }[] =
-    [];
-  if (comparison) {
-    cells.push({
-      value: `+${comparison.deltaPts}%`,
-      label: "Outcome",
-      tooltip: OUTCOME_TOOLTIP,
-      tone: "primary",
-    });
-  }
-  if (node.matchScore != null) {
-    cells.push({
-      value: `${node.matchScore}`,
-      label: "Match",
-      tooltip: MATCH_TOOLTIP,
-      tone: "neutral",
-    });
-  }
-  if (node.retentionRate != null) {
-    cells.push({
-      value: `${node.retentionRate}%`,
-      label: "Retention",
-      tooltip: RETENTION_TOOLTIP,
-      tone: "neutral",
-    });
-  }
+  const hasStatRow = Boolean(comparison) || node.retentionRate != null || Boolean(peerOutcome);
 
   return (
     <Card className="report-card-surface py-4">
       <CardContent className="space-y-3 px-[var(--card-px)]">
         <div className="flex items-center justify-between">
           <span className="font-mono text-xs font-bold uppercase tracking-wide text-primary">
-            Start here
+            Our suggestion
           </span>
           <Badge>Top match</Badge>
         </div>
 
-        {cells.length > 0 && (
-          <div className="flex border-t border-b border-border py-3">
-            {cells.map((cell, i) => (
-              <KpiCell key={cell.label} {...cell} bordered={i > 0} />
-            ))}
-          </div>
-        )}
+        <div className="grid grid-cols-[auto_1fr] gap-4">
+          {node.matchScore != null && (
+            <div className="flex flex-col items-center gap-0.5 border-r border-border pr-4">
+              <span className="font-mono text-[length:var(--text-match)] font-bold leading-none text-foreground">
+                {node.matchScore}
+              </span>
+              <span className="flex items-center gap-1 text-[length:var(--text-meta)] uppercase tracking-wide text-muted-foreground">
+                Match
+                <InfoTooltip text={MATCH_TOOLTIP} />
+              </span>
+            </div>
+          )}
 
-        <p className="text-[length:var(--text-title)] font-semibold text-foreground">
-          {node.title.replace(/\s\(v\d+\)$/, "")}
-        </p>
-        <p className="text-[length:var(--text-body)] text-muted-foreground">{node.body}</p>
+          <div className="min-w-0 space-y-1.5">
+            <p className="text-[length:var(--text-title)] font-semibold text-foreground">
+              {node.title.replace(/\s\(v\d+\)$/, "")}
+            </p>
+            <p className="text-[length:var(--text-body)] text-muted-foreground">{node.body}</p>
+
+            {hasStatRow && (
+              <p className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 pt-0.5">
+                {comparison && (
+                  <StatFigure
+                    value={`+${comparison.deltaPts}%`}
+                    unit="faster work"
+                    tooltip={OUTCOME_TOOLTIP}
+                    tone="primary"
+                  />
+                )}
+                {node.retentionRate != null && (
+                  <>
+                    {comparison && <span className="text-border">&middot;</span>}
+                    <StatFigure
+                      value={`${node.retentionRate}%`}
+                      unit="retention"
+                      tooltip={RETENTION_TOOLTIP}
+                      tone="neutral"
+                    />
+                  </>
+                )}
+                {peerOutcome && (
+                  <>
+                    {(comparison || node.retentionRate != null) && (
+                      <span className="text-border">&middot;</span>
+                    )}
+                    <span className="text-[length:var(--text-label)] text-muted-foreground">
+                      based on
+                    </span>
+                    <StatFigure
+                      value={`${peerOutcome.cohortSize}`}
+                      unit="teams"
+                      tone="muted"
+                    />
+                  </>
+                )}
+              </p>
+            )}
+          </div>
+        </div>
 
         {comparison && peerOutcome && (
-          <div className="max-w-[460px] space-y-2 border-t border-border pt-3">
+          <div className="space-y-2 border-t border-border pt-3">
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1 text-[length:var(--text-label)] font-medium text-foreground">
                 Evidence
@@ -155,18 +191,6 @@ export function PrescriptionCard({ need }: { need: DashboardNeed }) {
 
             <EvidenceBar label="Teams like you" value={comparison.you} tone="primary" />
             <EvidenceBar label="Typical team" value={comparison.typical} tone="muted" />
-
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <span
-                className="rounded-full px-2 py-0.5 font-mono text-[length:var(--text-meta)] font-bold text-primary"
-                style={{ background: "color-mix(in srgb, var(--color-primary) 12%, transparent)" }}
-              >
-                +{comparison.deltaPts} pts ahead
-              </span>
-              <span className="text-[length:var(--text-meta)] text-muted-foreground">
-                Based on {peerOutcome.cohortSize} teams
-              </span>
-            </div>
           </div>
         )}
       </CardContent>

@@ -171,6 +171,10 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
   // Suggestion/counter-argument cards carry a context input; source and the
   // terminal clarifying-question card don't take notes at all.
   const canTakeNote = SELECTABLE_KINDS.includes(nodeData.kind);
+  /** Exactly the condition under which OptionPicker renders below — when it
+   *  does, it owns the free-text answer and the standalone note panel is
+   *  suppressed so the card has a single commit control. */
+  const hasPicker = isChoice && Boolean(nodeData.question) && Boolean(nodeData.options);
   const eyebrowLabel = KIND_LABEL[nodeData.kind];
 
   const isSource = nodeData.kind === "source";
@@ -264,6 +268,13 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
   // ---------------------------------------------------------------------
   const [noteDraft, setNoteDraft] = useState("");
   const [noteDetailOpen, setNoteDetailOpen] = useState(false);
+  // The correction-note box on non-picker cards is collapsed by default now
+  // (design critique, variant B): at rest a card shows only its primary
+  // action, and the note opens on a quiet trigger. An always-open textarea
+  // competed with the primary control and ate a third of the card's height
+  // for a low-frequency action. Picker cards don't use this — their free-text
+  // answer lives inside the picker instead (see option-picker.tsx).
+  const [noteOpen, setNoteOpen] = useState(false);
   // The loading label is decided once, at submit time, from the note that
   // was actually sent — `pending` alone doesn't say WHY this card is
   // pending (it could be "Prefer this option" instead), so this stays null
@@ -292,6 +303,7 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
     setPendingLabel(label);
     onSubmitNote(id, text);
     setNoteDraft("");
+    setNoteOpen(false);
   }
 
   const origin = nodeData.origin;
@@ -625,6 +637,11 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
             disabled={pending}
             onSelectOption={(index) => onSelectOption(id, index)}
             onConfirm={() => onConfirmOption(id)}
+            noteDraft={noteDraft}
+            onNoteDraftChange={setNoteDraft}
+            onSubmitNote={handleSubmitNoteClick}
+            notePlaceholder="e.g. none of these — priorities change mid-sprint from outside"
+            downstreamCount={downstreamCount}
           />
         ) : null}
 
@@ -677,12 +694,15 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
           </div>
         )}
 
-        {/* The context note — always visible, never a toggle-opened box.
-            The label itself is what tells the user this is a correction
-            channel, not a comment box (see lib/mockAI.ts's classifyNote
-            doc comment for the two intents this feeds). */}
-        {canTakeNote && (
-          <div className="space-y-2 border-t border-dashed border-border pt-3">
+        {/* The context note, for cards that don't ask a question. Cards that
+            DO (the option pickers) carry their free-text answer as the last
+            choice in the picker itself, so they get one commit control
+            instead of two competing ones — see option-picker.tsx. The label
+            is what tells the user this is a correction channel, not a comment
+            box (see lib/mockAI.ts's classifyNote doc comment for the two
+            intents this feeds). */}
+        {canTakeNote && !hasPicker && (
+          <div className="border-t border-dashed border-border pt-3">
             {pending && pendingLabel ? (
               <AITextLoading
                 texts={[pendingLabel, pendingLabel]}
@@ -690,47 +710,60 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
                 className="text-[length:var(--text-label)] text-muted-foreground"
               />
             ) : (
-              <>
-                <p className="text-[length:var(--text-meta)] text-muted-foreground">
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => setNoteOpen((v) => !v)}
+                  aria-expanded={noteOpen}
+                  className="nodrag group flex w-full items-center gap-1 text-left text-[length:var(--text-meta)] text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <ChevronRight
+                    className={cn("h-3 w-3 shrink-0 transition-transform", noteOpen && "rotate-90")}
+                  />
                   {isChoice
                     ? "None of these fit? Tell me how you'd put it."
                     : "Not quite right? Tell me what I'm missing."}
-                  {downstreamCount > 0 && (
-                    <span className="mt-0.5 block text-muted-foreground/70">
-                      Revising this will replace the {downstreamCount} card
-                      {downstreamCount === 1 ? "" : "s"} below it.
-                    </span>
-                  )}
-                </p>
-                <Textarea
-                  value={noteDraft}
-                  onChange={(e) => setNoteDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                      e.preventDefault();
-                      handleSubmitNoteClick();
-                    }
-                  }}
-                  placeholder={
-                    isChoice
-                      ? "e.g. none of these — priorities change mid-sprint from outside"
-                      : "e.g. we're a team of two, 3 is too many"
-                  }
-                  rows={2}
-                  disabled={pending}
-                  className="nodrag"
-                />
-                <div className="flex justify-end">
-                  <Button
-                    size="sm"
-                    className="nodrag"
-                    disabled={!noteDraft.trim() || pending}
-                    onClick={handleSubmitNoteClick}
-                  >
-                    Send
-                  </Button>
-                </div>
-              </>
+                </button>
+                {noteOpen && (
+                  <div className="space-y-2">
+                    {downstreamCount > 0 && (
+                      <p className="text-[length:var(--text-meta)] text-muted-foreground/70">
+                        Revising this will replace the {downstreamCount} card
+                        {downstreamCount === 1 ? "" : "s"} below it.
+                      </p>
+                    )}
+                    <Textarea
+                      autoFocus
+                      value={noteDraft}
+                      onChange={(e) => setNoteDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                          e.preventDefault();
+                          handleSubmitNoteClick();
+                        }
+                      }}
+                      placeholder={
+                        isChoice
+                          ? "e.g. none of these — priorities change mid-sprint from outside"
+                          : "e.g. we're a team of two, 3 is too many"
+                      }
+                      rows={2}
+                      disabled={pending}
+                      className="nodrag"
+                    />
+                    <div className="flex justify-start">
+                      <Button
+                        size="sm"
+                        className="nodrag"
+                        disabled={!noteDraft.trim() || pending}
+                        onClick={handleSubmitNoteClick}
+                      >
+                        Send
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}

@@ -33,7 +33,22 @@ export function PrescriptionCardCompact({ need }: { need: DashboardNeed }) {
           )}
         </div>
 
-        <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+        <div className="grid grid-cols-[auto_1fr] items-center gap-4">
+          {node.matchScore != null && (
+            <div className="border-r border-border pr-4 text-center">
+              {/* --text-kpi (26px) against the hero's --text-match (30px):
+                  with both card types now sharing one anatomy, the size of
+                  this number is the only thing left that separates them. */}
+              <div className="font-mono text-[length:var(--text-kpi)] font-bold leading-none text-foreground">
+                {node.matchScore}
+              </div>
+              <div className="mt-1 flex items-center justify-center gap-1 text-[length:var(--text-meta)] uppercase tracking-wide text-muted-foreground">
+                Match
+                <InfoTooltip text={MATCH_TOOLTIP} />
+              </div>
+            </div>
+          )}
+
           <div className="min-w-0 space-y-1">
             <p className="truncate text-[length:var(--text-support-title)] font-semibold text-foreground">
               {node.title.replace(/\s\(v\d+\)$/, "")}
@@ -41,11 +56,16 @@ export function PrescriptionCardCompact({ need }: { need: DashboardNeed }) {
             <p className="line-clamp-1 text-[length:var(--text-label)] text-muted-foreground">
               {node.body}
             </p>
+            {/* Same stat row as the hero card: every figure at one size, role
+                carried by colour. "n=142" was statistical notation on a screen
+                read by HR and procurement people, and it was the only figure in
+                the row without a unit word after it — "based on 142 teams" fixes
+                both. */}
             {hasStatLine && (
-              <p className="flex flex-wrap items-baseline gap-x-1.5 text-[length:var(--text-label)]">
+              <p className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-[length:var(--text-label)]">
                 {comparison && (
                   <>
-                    <span className="font-mono font-bold text-primary">
+                    <span className="font-mono text-[length:var(--text-label)] font-bold text-primary">
                       +{comparison.deltaPts}%
                     </span>
                     <span className="text-muted-foreground">faster work</span>
@@ -54,7 +74,7 @@ export function PrescriptionCardCompact({ need }: { need: DashboardNeed }) {
                 {node.retentionRate != null && (
                   <>
                     {comparison && <span className="text-border">&middot;</span>}
-                    <span className="font-mono font-bold text-foreground">
+                    <span className="font-mono text-[length:var(--text-label)] font-bold text-foreground">
                       {node.retentionRate}%
                     </span>
                     <span className="text-muted-foreground">retention</span>
@@ -62,27 +82,19 @@ export function PrescriptionCardCompact({ need }: { need: DashboardNeed }) {
                 )}
                 {peerOutcome && (
                   <>
-                    <span className="text-border">&middot;</span>
-                    <span className="font-mono text-muted-foreground">
-                      n={peerOutcome.cohortSize}
+                    {(comparison || node.retentionRate != null) && (
+                      <span className="text-border">&middot;</span>
+                    )}
+                    <span className="text-muted-foreground">based on</span>
+                    <span className="font-mono text-[length:var(--text-label)] font-bold text-muted-foreground">
+                      {peerOutcome.cohortSize}
                     </span>
+                    <span className="text-muted-foreground">teams</span>
                   </>
                 )}
               </p>
             )}
           </div>
-
-          {node.matchScore != null && (
-            <div className="border-l border-border pl-4 text-right">
-              <div className="font-mono text-[length:var(--text-match)] font-bold leading-none text-foreground">
-                {node.matchScore}
-              </div>
-              <div className="mt-1 flex items-center justify-end gap-1 text-[length:var(--text-meta)] uppercase tracking-wide text-muted-foreground">
-                Match
-                <InfoTooltip text={MATCH_TOOLTIP} />
-              </div>
-            </div>
-          )}
         </div>
 
         {evidenceCount > 0 && (

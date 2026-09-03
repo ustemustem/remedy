@@ -12,12 +12,20 @@ import { PrescriptionCardCompact } from "./prescription-card-compact";
 import { SeeMoreButton } from "./see-more-button";
 import { ReportFooter } from "./report-footer";
 
-function SectionHead({ index, title }: { index: number; title: string }) {
+/**
+ * Report layout A: the numbered sections are the two that run down the
+ * document column. The session panel in the rail is deliberately unnumbered —
+ * it sits alongside the document rather than inside its sequence, and a
+ * number there would claim an order the layout no longer has.
+ */
+function SectionHead({ index, title }: { index?: number; title: string }) {
   return (
     <div className="mb-4 flex items-baseline gap-3">
-      <span className="font-mono text-xs font-bold text-primary">
-        {String(index).padStart(2, "0")}
-      </span>
+      {index != null && (
+        <span className="font-mono text-xs font-bold text-primary">
+          {String(index).padStart(2, "0")}
+        </span>
+      )}
       <h2 className="font-heading text-lg font-semibold text-foreground">{title}</h2>
     </div>
   );
@@ -102,59 +110,78 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
   }
 
   return (
-    <>
-      <ReportSection index={1} title="What we understood" delayMs={60}>
-        <div className="space-y-3">
-          <UnderstoodSummary
-            needs={needs}
-            highlightedId={highlightedId}
-            onEnter={handleEnter}
-            onLeave={handleLeave}
-            onToggle={handleToggle}
-          />
-          <NeedSummaryList
-            needs={needs}
-            highlightedId={highlightedId}
-            onEnter={handleEnter}
-            onLeave={handleLeave}
-            onToggle={handleToggle}
-          />
-        </div>
-      </ReportSection>
+    /**
+     * Report layout A: a document column plus a session rail. The reading
+     * column stays at its old 780px measure — the rail is paid for out of the
+     * margin that was previously dead space either side of the column, not out
+     * of the prose. Under 1024px the rail drops back underneath the document,
+     * which is also what @media print collapses it to (see globals.css), so an
+     * exported PDF stays a single-column report.
+     */
+    <div className="report-grid grid gap-x-8 min-[1024px]:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="min-w-0">
+        <ReportSection index={1} title="What we understood" delayMs={60}>
+          <div className="space-y-3">
+            <UnderstoodSummary
+              needs={needs}
+              highlightedId={highlightedId}
+              onEnter={handleEnter}
+              onLeave={handleLeave}
+              onToggle={handleToggle}
+            />
+            <NeedSummaryList
+              needs={needs}
+              highlightedId={highlightedId}
+              onEnter={handleEnter}
+              onLeave={handleLeave}
+              onToggle={handleToggle}
+            />
+          </div>
+        </ReportSection>
 
-      <ReportSection index={2} title="How we read your situation" delayMs={140}>
-        <SessionSummarySection nodes={nodes} themes={themes} />
-      </ReportSection>
-
-      <div className="report-reveal-in mt-[22px]" style={{ animationDelay: "220ms" }}>
-        <SectionHead index={3} title="Your prescription" />
-        <div className="space-y-3">
-          {feed.hero && <PrescriptionCard need={feed.hero} />}
-          {feed.support.map((n) => (
-            <PrescriptionCardCompact key={n.node.id} need={n} />
-          ))}
-          {feed.hidden.length > 0 && (
-            <>
-              <div className="see-more-panel" data-open={showHidden}>
-                <div className="space-y-3">
-                  {feed.hidden.map((n) => (
-                    <PrescriptionCardCompact key={n.node.id} need={n} />
-                  ))}
+        <div className="report-reveal-in mt-[22px]" style={{ animationDelay: "220ms" }}>
+          <SectionHead index={2} title="Your prescription" />
+          <div className="space-y-3">
+            {feed.hero && <PrescriptionCard need={feed.hero} />}
+            {feed.support.map((n) => (
+              <PrescriptionCardCompact key={n.node.id} need={n} />
+            ))}
+            {feed.hidden.length > 0 && (
+              <>
+                <div className="see-more-panel" data-open={showHidden}>
+                  <div className="space-y-3">
+                    {feed.hidden.map((n) => (
+                      <PrescriptionCardCompact key={n.node.id} need={n} />
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <SeeMoreButton
-                count={feed.hidden.length}
-                expanded={showHidden}
-                onToggle={() => setShowHidden((v) => !v)}
-              />
-            </>
-          )}
+                <SeeMoreButton
+                  count={feed.hidden.length}
+                  expanded={showHidden}
+                  onToggle={() => setShowHidden((v) => !v)}
+                />
+              </>
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="report-reveal-in" style={{ animationDelay: "300ms" }}>
-        <ReportFooter />
-      </div>
-    </>
+      <aside className="report-rail min-w-0 mt-[22px] min-[1024px]:mt-0">
+        <div className="min-[1024px]:sticky min-[1024px]:top-0">
+          <div className="report-reveal-in" style={{ animationDelay: "140ms" }}>
+            <SectionHead title="How we read your situation" />
+            <Card className="report-card-surface">
+              <CardContent className="px-[var(--card-px)] py-4">
+                <SessionSummarySection nodes={nodes} themes={themes} variant="rail" />
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="report-reveal-in" style={{ animationDelay: "300ms" }}>
+            <ReportFooter />
+          </div>
+        </div>
+      </aside>
+    </div>
   );
 }

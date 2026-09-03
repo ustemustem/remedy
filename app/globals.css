@@ -504,6 +504,18 @@
   .report-scope {
     max-width: none !important;
   }
+  /* Report layout A's session rail collapses back into the document flow for
+     print: a rail is a screen affordance for filling horizontal space, and a
+     printed prescription should read as one column, top to bottom. */
+  .report-grid {
+    display: block !important;
+  }
+  .report-rail {
+    margin-top: 22px !important;
+  }
+  .report-rail > * {
+    position: static !important;
+  }
 }
 
 .dark {

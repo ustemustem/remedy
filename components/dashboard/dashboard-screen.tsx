@@ -56,7 +56,12 @@ export function DashboardScreen({
           loader's a11y handoff target without adding it to normal Tab
           order. */}
       <div ref={scrollRef} tabIndex={-1} className="flex-1 overflow-y-auto outline-none">
-        <div className="mx-auto max-w-[780px] px-4 pb-16">
+        {/* Report layout A: 1184 - 32px of padding = 1152, which is exactly
+            780 (document column) + 32 (gap) + 340 (session rail). The reading
+            column keeps the measure it had when this was a lone centred
+            780px block; the rail is built out of the margin that used to sit
+            empty either side of it. */}
+        <div className="mx-auto max-w-[1184px] px-4 pb-16">
           <PrescriptionReport nodes={graph.nodes} />
         </div>
 

@@ -47,15 +47,31 @@ function ThemeColumn({
 
 /** Report Section 2's accepted/pushed-back theme columns — single column
  *  under ~620px, side-by-side above it. No "nothing yet" placeholder: the
- *  whole block is absent when there are no themes at all. */
-export function ThemeColumns({ themes }: { themes: ThemeEntry[] }) {
+ *  whole block is absent when there are no themes at all.
+ *
+ *  `variant="rail"` forces the single-column stack regardless of viewport:
+ *  the side-by-side breakpoint is a viewport media query, so inside the
+ *  340px session rail it would otherwise try to split two columns across a
+ *  track far too narrow for them. */
+export function ThemeColumns({
+  themes,
+  variant = "row",
+}: {
+  themes: ThemeEntry[];
+  variant?: "row" | "rail";
+}) {
   const liked = themes.filter((t) => t.type === "like");
   const disliked = themes.filter((t) => t.type === "dislike");
 
   if (liked.length === 0 && disliked.length === 0) return null;
 
   return (
-    <div className="mt-4 grid grid-cols-1 gap-6 border-t border-border pt-3.5 min-[620px]:grid-cols-2">
+    <div
+      className={cn(
+        "mt-4 grid grid-cols-1 border-t border-border pt-3.5",
+        variant === "rail" ? "gap-4" : "gap-6 min-[620px]:grid-cols-2"
+      )}
+    >
       <ThemeColumn label="Accepted" entries={liked} tone="primary" delayMs={170} />
       <ThemeColumn label="Pushed back on" entries={disliked} tone="cta" delayMs={215} />
     </div>

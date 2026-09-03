@@ -17,9 +17,20 @@ const MARK_PATH =
 
 const MIN_VISIBLE_MS = 1700;
 const WORKING_AFTER_MS = 1050;
-const SECOND_STATUS_MS = 2100;
-const EXIT_MS = 720;
+// Fix C (animation handoff §5, short-term half): was 2100ms, arbitrary and
+// unrelated to the real ~2.5-4s generateReport() promise. Aligned to
+// MIN_VISIBLE_MS instead so the final "present-continuous" status can never
+// appear before the point the loader is guaranteed to still be showing —
+// binding it to real mockAI stage signals is the long-term fix, not done here.
+const SECOND_STATUS_MS = MIN_VISIBLE_MS;
 const CEILING_MS = 15000;
+// Safety floor under the exit animation's animationend (rl-erase-kf runs
+// 0.72s). Long enough that the animation always wins in the normal case, short
+// enough that a missing animationend costs the viewer a few hundred ms rather
+// than hanging the report forever.
+const EXIT_FALLBACK_MS = 1100;
+/** No erase animation runs under reduced motion, so don't wait for one. */
+const REDUCED_EXIT_MS = 180;
 
 const STATUS = [
   "Reviewing your session",
@@ -27,9 +38,13 @@ const STATUS = [
   "Building your prescription",
 ] as const;
 
-function timeoutAfter(ms: number): Promise<never> {
+// Fix F (animation handoff §5): the ceiling timer is pushed into `timers` so
+// clearTimers() on retry/unmount actually clears it too — previously it lived
+// on regardless of how the race was won.
+function timeoutAfter(ms: number, timers: ReturnType<typeof setTimeout>[]): Promise<never> {
   return new Promise((_, reject) => {
-    setTimeout(() => reject(new Error("Report generation timed out")), ms);
+    const t = setTimeout(() => reject(new Error("Report generation timed out")), ms);
+    timers.push(t);
   });
 }
 
@@ -46,6 +61,15 @@ type Phase = "draw" | "working" | "exit" | "error";
  * — no artificial delay is added beyond it. A `CEILING_MS` timeout or a
  * rejection both fall through to the error phase with a "Try again" retry,
  * so this can never spin silently forever.
+ *
+ * Fix A/D (animation handoff §5): phase transitions that correspond to a CSS
+ * animation finishing (draw -> working, exit -> onReady) are driven by that
+ * animation's own `animationend`, not a hand-matched fixed timeout — a fixed
+ * timer starts before the CSS animation actually begins painting (React
+ * commit -> style recalc -> first frame) and can fire early, cutting the
+ * animation off mid-flight. `prefers-reduced-motion` never runs these
+ * animations, so `animationend` never fires there — that path keeps a short
+ * fallback timer.
  */
 export function ReportLoader({ onReady }: { onReady: () => void }) {
   const [phase, setPhase] = useState<Phase>("draw");
@@ -53,42 +77,69 @@ export function ReportLoader({ onReady }: { onReady: () => void }) {
   const reducedMotion = useReducedMotion();
   const attemptRef = useRef(0);
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const finishedRef = useRef(false);
 
   const clearTimers = useCallback(() => {
     timersRef.current.forEach(clearTimeout);
     timersRef.current = [];
   }, []);
 
+  const finish = useCallback(() => {
+    if (finishedRef.current) return;
+    finishedRef.current = true;
+    onReady();
+  }, [onReady]);
+
+  /** draw -> working, idempotent: whichever of the dot's animationend or the
+   *  fallback timer arrives first wins, the other is a no-op. */
+  const enterWorking = useCallback((attempt: number) => {
+    if (attemptRef.current !== attempt) return;
+    setPhase((p) => (p === "draw" ? "working" : p));
+    setStatusIndex((i) => (i < 1 ? 1 : i));
+  }, []);
+
   const beginAttempt = useCallback(() => {
     const attempt = ++attemptRef.current;
     clearTimers();
+    finishedRef.current = false;
 
-    const t1 = setTimeout(() => {
-      if (attemptRef.current !== attempt) return;
-      setPhase("working");
-      setStatusIndex(1);
-    }, WORKING_AFTER_MS);
+    // The dot's rl-dot-pop-kf animationend is the real signal for draw ->
+    // working, but it never fires when the animation doesn't run at all
+    // (prefers-reduced-motion, a throttled background tab, an animation
+    // cancelled by a re-render). The timer is the floor under that, not the
+    // primary path: enterWorking is idempotent, so the first one wins.
+    const t1 = setTimeout(() => enterWorking(attempt), WORKING_AFTER_MS);
     const t2 = setTimeout(() => {
       if (attemptRef.current !== attempt) return;
-      setStatusIndex(2);
+      setStatusIndex((i) => (i < 2 ? 2 : i));
     }, SECOND_STATUS_MS);
     timersRef.current.push(t1, t2);
 
-    withMinDuration(Promise.race([generateReport(), timeoutAfter(CEILING_MS)]), MIN_VISIBLE_MS)
+    withMinDuration(
+      Promise.race([generateReport(), timeoutAfter(CEILING_MS, timersRef.current)]),
+      MIN_VISIBLE_MS
+    )
       .then(() => {
         if (attemptRef.current !== attempt) return;
         setPhase("exit");
-        const t3 = setTimeout(() => {
-          if (attemptRef.current !== attempt) return;
-          onReady();
-        }, EXIT_MS);
+        // Same belt and braces on the way out. finish() is guarded by
+        // finishedRef, so the erase animation's animationend and this timer
+        // cannot both call onReady — and the report can never hang behind an
+        // animationend that is never coming.
+        const t3 = setTimeout(
+          () => {
+            if (attemptRef.current !== attempt) return;
+            finish();
+          },
+          reducedMotion ? REDUCED_EXIT_MS : EXIT_FALLBACK_MS
+        );
         timersRef.current.push(t3);
       })
       .catch(() => {
         if (attemptRef.current !== attempt) return;
         setPhase("error");
       });
-  }, [clearTimers, onReady]);
+  }, [clearTimers, enterWorking, finish, reducedMotion]);
 
   useEffect(() => {
     beginAttempt();
@@ -102,12 +153,19 @@ export function ReportLoader({ onReady }: { onReady: () => void }) {
     beginAttempt();
   }
 
-  const markClass =
-    phase === "error"
-      ? "rl-mark"
-      : reducedMotion
-        ? "rl-mark"
-        : `rl-mark rl-${phase}`;
+  // Fix E (animation handoff §5): CSS alone owns prefers-reduced-motion (see
+  // the @media block in globals.css) — phase classes apply unconditionally
+  // instead of also being suppressed here in JS. `reducedMotion` is kept only
+  // to pick the fallback-timer path above, where no animationend will fire.
+  const markClass = phase === "error" ? "rl-mark" : `rl-mark rl-${phase}`;
+
+  function handleAnimationEnd(e: React.AnimationEvent<SVGSVGElement>) {
+    if (phase === "draw" && e.animationName === "rl-dot-pop-kf") {
+      enterWorking(attemptRef.current);
+    } else if (phase === "exit" && e.animationName === "rl-erase-kf") {
+      finish();
+    }
+  }
 
   return (
     <div className="flex h-full flex-col items-center justify-center gap-6 bg-background">
@@ -118,6 +176,7 @@ export function ReportLoader({ onReady }: { onReady: () => void }) {
         viewBox="0 0 220 231"
         fill="none"
         aria-hidden="true"
+        onAnimationEnd={handleAnimationEnd}
       >
         <path className="rl-shimmer" d={MARK_PATH} />
         <path className="rl-stroke" d={MARK_PATH} />

@@ -12,28 +12,68 @@ interface Segment {
 }
 
 /**
- * "How we read your situation" summary strip — segments size to their own
- * content and left-align (report redesign, reverses the earlier flex-1
- * decision: a quiet 2-segment session used to stretch each number to
- * ~430px, reading as two lonely numbers on an otherwise empty row; sizing
- * to content instead gives a tight, intentional cluster at any count).
- * Zero-value metrics don't get a segment at all, so the strip shrinks with
- * the session instead of padding out with empty counts.
+ * "How we read your situation" summary strip — always renders all five
+ * metrics, zero included. Previously zero-value metrics were dropped entirely
+ * so the strip could shrink to fit a quiet session, but a fixed,
+ * always-complete set reads more consistently than a strip whose shape changes
+ * with the session (and a 0 is itself useful information: it tells the user a
+ * signal genuinely wasn't there, not that it was omitted).
+ *
+ * Two layouts for the two places this renders (report layout A):
+ * - `row` — spread across the full card width, for the stacked single-column
+ *   layout the report falls back to under 1024px.
+ * - `rail` — one metric per line, value left, label right, hairline between,
+ *   for the 340px session rail. Five numbers stretched across a wide row read
+ *   as a dashboard; the same five stacked in a narrow rail read as a summary,
+ *   which is what they are.
  */
-export function SessionStrip({ stats }: { stats: SessionStats }) {
-  const allSegments: Segment[] = [
+export function SessionStrip({
+  stats,
+  variant = "row",
+}: {
+  stats: SessionStats;
+  variant?: "row" | "rail";
+}) {
+  const segments: Segment[] = [
     { label: "Liked", value: stats.likeCount, tone: "primary" },
     { label: "Pushed back on", value: stats.dislikeCount, tone: "cta" },
     { label: "Paths explored", value: stats.pathCount },
     { label: "Selected", value: stats.selectedCount },
     { label: "Notes left", value: stats.noteCount },
   ];
-  const segments = allSegments.filter((s) => s.value > 0);
 
-  if (segments.length === 0) return null;
+  if (variant === "rail") {
+    return (
+      <div className="flex w-full flex-col">
+        {segments.map((s, i) => (
+          <div
+            key={s.label}
+            className={cn(
+              "strip-segment-in flex items-baseline justify-between gap-3 py-1.5",
+              i < segments.length - 1 && "border-b border-border"
+            )}
+            style={{ animationDelay: `${i * STAGGER_MS}ms` }}
+          >
+            <span
+              className={cn(
+                "font-mono text-[17px] font-bold leading-none",
+                s.tone === "primary" && "text-primary",
+                s.tone === "cta" && "text-cta"
+              )}
+            >
+              {s.value}
+            </span>
+            <span className="font-mono text-[length:var(--text-meta)] uppercase tracking-wide text-muted-foreground">
+              {s.label}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   return (
-    <div className="flex w-full flex-wrap justify-start">
+    <div className="flex w-full flex-wrap justify-between">
       {segments.map((s, i) => (
         <div
           key={s.label}

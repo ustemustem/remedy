@@ -226,93 +226,26 @@ export function buildSessionReadout(stats: SessionStats, themes: ThemeEntry[]): 
  * proposing anything); the counter-argument is a "plain" card (a proposal,
  * `Prefer this option` only) — see lib/types.ts's cardType.
  */
+/**
+ * Real getInitialCanvas — POSTs the vent to the server route (which runs the
+ * LLM with the key held server-side) and returns the assembled CanvasGraph.
+ * Same signature the front end always used; only the internals changed from
+ * canned data to a real call (backend roadmap Phase 1). The vent -> Suggestion
+ * + Counter-argument pair (or a clarifying framing when the input is thin) is
+ * produced server-side in lib/llm/initial-canvas.ts.
+ */
 export async function getInitialCanvas(chatText: string): Promise<CanvasGraph> {
-  await delay();
-
-  const sourceId = id("source");
-  // A suggestion and a counter-argument are different directions from the
-  // start — they don't share a path just because they were drafted
-  // together, since what each grows into downstream naturally diverges.
-  const recGroupId = id("group");
-  const counterGroupId = id("group");
-  const now = new Date().toISOString();
-
-  const source: CanvasNodeData = {
-    id: sourceId,
-    kind: "source",
-    title: "What you wrote",
-    body: chatText,
-    parentId: null,
-    depth: 0,
-    selected: false,
-    highlights: [
-      {
-        id: id("hl"),
-        text: extractSnippet(chatText, 0),
-        primaryTag: "Team process",
-        secondaryTags: ["Growth stage"],
-      },
-      {
-        id: id("hl"),
-        text: extractSnippet(chatText, 1),
-        primaryTag: "Tooling",
-      },
-    ],
-  };
-
-  const recTitle = "Narrow the active work-in-progress";
-  const recBody =
-    "A few teams in your situation get more reliable delivery by first narrowing down what's actively in flight, before changing tools or process.";
-  const recOptions: ChoiceOption[] = [
-    { title: "Too many priorities in flight", subtitle: "Work is spread thin across parallel initiatives." },
-    { title: "Unclear ownership", subtitle: "Tasks stall because it's unclear who's accountable." },
-    { title: "Estimation is consistently off", subtitle: "Work reliably takes longer than planned." },
-  ];
-
-  const rec: CanvasNodeData = {
-    id: id("rec"),
-    kind: "recommendation",
-    title: recTitle,
-    body: recBody,
-    parentId: sourceId,
-    depth: 1,
-    selected: false,
-    cardType: "choice",
-    question: "Which best describes why planning keeps slipping?",
-    options: recOptions,
-    picked: null,
-    userFraming: null,
-    revisions: [{ revision: 1, title: recTitle, body: recBody, note: null, createdAt: now }],
-    activeRevision: 1,
-    origin: null,
-    groupId: recGroupId,
-    groupLabel: "Suggestion",
-  };
-
-  const counterTitle = "Counter-argument";
-  const counterBody =
-    "If the real issue is external dependencies rather than internal focus, narrowing WIP alone won't fix the slippage. It's worth ruling that out first.";
-
-  const counter: CanvasNodeData = {
-    id: id("counter"),
-    kind: "counter-argument",
-    title: counterTitle,
-    body: counterBody,
-    parentId: sourceId,
-    depth: 1,
-    selected: false,
-    cardType: "plain",
-    revisions: [{ revision: 1, title: counterTitle, body: counterBody, note: null, createdAt: now }],
-    activeRevision: 1,
-    origin: null,
-    groupId: counterGroupId,
-    groupLabel: "Counter-argument",
-  };
-
-  const nodes = [source, rec, counter];
-  const edges = [edge(sourceId, rec.id), edge(sourceId, counter.id)];
-
-  return { nodes, edges };
+  const res = await fetch("/api/canvas", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chatText }),
+  });
+  if (!res.ok) {
+    const detail = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(detail?.error ?? `Canvas generation failed (${res.status}).`);
+  }
+  const data = (await res.json()) as { graph: CanvasGraph };
+  return data.graph;
 }
 
 /**
@@ -777,9 +710,3 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
-function extractSnippet(text: string, index: number) {
-  const words = text.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return text.slice(0, 24) || "this";
-  const start = Math.min(index * 6, Math.max(words.length - 4, 0));
-  return words.slice(start, start + 4).join(" ");
-}

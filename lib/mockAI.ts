@@ -368,78 +368,53 @@ export async function getOptionResponse(
   selectedIndex: number,
   feedbackContext?: FeedbackContext
 ): Promise<{ nodes: CanvasNodeData[]; edges: CanvasEdgeData[] }> {
-  await delay();
-
-  const choice = node.options?.[selectedIndex];
   const nextDepth = node.depth + 1;
 
+  // Depth-cap / conclusion stays in code (roadmap §02) — no LLM call needed
+  // to decide the conversation has converged.
   if (shouldConclude(nextDepth, feedbackContext)) {
     const { node: clarifying, edge: e } = clarifyingNode(node.id, nextDepth);
     return { nodes: [clarifying], edges: [e] };
   }
 
-  const { delta, matchedLiked } = biasFor(
-    `${node.title} ${choice?.title ?? ""} ${choice?.subtitle ?? ""}`,
-    feedbackContext
-  );
-
-  let body = choice
-    ? `Since "${choice.subtitle}", try tightening scope reviews to once a week and capping active workstreams at 3 per person before revisiting tooling.`
-    : "Here's a tailored next step based on what you picked.";
-  if (matchedLiked) {
-    body += `\n\n(Weighted toward the "${matchedLiked}" theme you liked.)`;
+  const choice = node.options?.[selectedIndex];
+  const res = await fetch("/api/canvas/option", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      parentTitle: baseTitle(node),
+      parentBody: node.body,
+      option: choice ? { title: choice.title, subtitle: choice.subtitle } : null,
+      liked: feedbackContext?.liked ?? [],
+      disliked: feedbackContext?.disliked ?? [],
+    }),
+  });
+  if (!res.ok) {
+    const detail = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(detail?.error ?? `Option response failed (${res.status}).`);
   }
+  const { recommendation, counterArgument } = (await res.json()) as {
+    recommendation: { title: string; body: string };
+    counterArgument: { title: string; body: string } | null;
+  };
 
+  // The model produced the CONTENT; the code owns the structure (ids, groups,
+  // depth, edges). No fabricated numbers — the fit signal and evidence are
+  // Phase 3. The rebuttal counter-argument stays in the same path as the
+  // recommendation it responds to (shared groupId), matching the prior shape.
   const now = new Date().toISOString();
-  const branchTitle = choice ? `Given: ${choice.title}` : "Branch";
   const branch: CanvasNodeData = {
     id: id("branch"),
     kind: "recommendation",
-    title: branchTitle,
-    body,
+    title: recommendation.title,
+    body: recommendation.body,
     parentId: node.id,
     depth: nextDepth,
     selected: false,
     cardType: "plain",
-    revisions: [{ revision: 1, title: branchTitle, body, note: null, createdAt: now }],
-    activeRevision: 1,
-    origin: null,
-    createdUnderRevision: node.activeRevision ?? 1,
-    matchScore: clamp(79 + delta, 40, 99),
-    retentionRate: clamp(81 + delta, 40, 99),
-    // Picking an A/B/C option (or accepting your own typed framing) is an
-    // organic user decision, not a paid placement — sponsored should come
-    // from a genuinely distinct source later, not be the default outcome
-    // of the primary pick flow.
-    transparency: "organic",
-    matchFactors: MOCK_MATCH_FACTORS,
-    peerOutcome: mockPeerOutcome(268, "teams that picked this option, last 12 months"),
-    evidenceExamples: mockEvidenceExamples(),
-    groupId: node.groupId,
-    groupLabel: node.groupLabel,
-  };
-
-  const includeCounter = Math.random() < counterArgumentChance(feedbackContext);
-  // This counter-argument is a direct rebuttal of the option just picked, not
-  // an independent idea in its own right — it stays in the same path as the
-  // recommendation it's responding to (unlike the initial proactive pair in
-  // getInitialCanvas, which really are two different directions from the
-  // start). Rendering it alongside `branch` in one shared path frame is what
-  // canvas-screen.tsx's groupId-based framing already does automatically.
-  const counterTitle = "Counter-argument";
-  const counterBody = choice
-    ? `Worth checking first: if "${choice.title.toLowerCase()}" isn't actually the root cause, this fix won't stick. Confirm it before committing the team's time.`
-    : "Worth validating this is the actual root cause before committing time to it.";
-  const counter: CanvasNodeData = {
-    id: id("counter"),
-    kind: "counter-argument",
-    title: counterTitle,
-    body: counterBody,
-    parentId: node.id,
-    depth: nextDepth,
-    selected: false,
-    cardType: "plain",
-    revisions: [{ revision: 1, title: counterTitle, body: counterBody, note: null, createdAt: now }],
+    revisions: [
+      { revision: 1, title: recommendation.title, body: recommendation.body, note: null, createdAt: now },
+    ],
     activeRevision: 1,
     origin: null,
     createdUnderRevision: node.activeRevision ?? 1,
@@ -447,11 +422,35 @@ export async function getOptionResponse(
     groupLabel: node.groupLabel,
   };
 
-  const nodes = includeCounter ? [branch, counter] : [branch];
-  return {
-    nodes,
-    edges: nodes.map((n) => edge(node.id, n.id)),
-  };
+  const nodes: CanvasNodeData[] = [branch];
+  if (counterArgument) {
+    nodes.push({
+      id: id("counter"),
+      kind: "counter-argument",
+      title: counterArgument.title,
+      body: counterArgument.body,
+      parentId: node.id,
+      depth: nextDepth,
+      selected: false,
+      cardType: "plain",
+      revisions: [
+        {
+          revision: 1,
+          title: counterArgument.title,
+          body: counterArgument.body,
+          note: null,
+          createdAt: now,
+        },
+      ],
+      activeRevision: 1,
+      origin: null,
+      createdUnderRevision: node.activeRevision ?? 1,
+      groupId: node.groupId,
+      groupLabel: node.groupLabel,
+    });
+  }
+
+  return { nodes, edges: nodes.map((n) => edge(node.id, n.id)) };
 }
 
 // ---------------------------------------------------------------------------
@@ -667,22 +666,6 @@ function baseTitle(node: CanvasNodeData) {
 
 function swing() {
   return Math.round((Math.random() - 0.3) * 10);
-}
-
-/**
- * Decides how likely a counter-argument is worth surfacing, based on how
- * this user has reacted to counter-arguments before — deriveFeedbackContext
- * falls back to a node's title when it has no highlight tags, so a
- * liked/disliked counter-argument card shows up here literally as the theme
- * "Counter-argument". No signal yet → default to a coin flip.
- */
-function counterArgumentChance(feedbackContext?: FeedbackContext): number {
-  if (!feedbackContext) return 0.5;
-  const disliked = feedbackContext.disliked.some((t) => t.toLowerCase() === "counter-argument");
-  const liked = feedbackContext.liked.some((t) => t.toLowerCase() === "counter-argument");
-  if (disliked && !liked) return 0.15;
-  if (liked && !disliked) return 0.85;
-  return 0.5;
 }
 
 /**

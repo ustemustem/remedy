@@ -84,3 +84,31 @@ export const InitialReadingSchema = z.object({
     .describe("The Counter-argument heading — a constructive critique of the suggestion."),
 });
 export type InitialReading = z.infer<typeof InitialReadingSchema>;
+
+/**
+ * getOptionResponse (Phase 2): the user picked an A/B/C option on a choice
+ * card. The model produces the next recommendation building on that pick, and
+ * OPTIONALLY a constructive counter-argument — null when it has no genuinely
+ * useful pushback to make (a real model shouldn't manufacture one). No
+ * numbers here; the fit signal and evidence are Phase 3.
+ */
+export const OptionResponseSchema = z.object({
+  recommendation: z
+    .object({
+      title: z.string().describe("A short, imperative title for the next step (<= 8 words)."),
+      body: z
+        .string()
+        .describe("2-3 sentences building concretely on the option the user picked. No invented statistics."),
+    })
+    .describe("The next recommendation, continuing the picked option's direction."),
+  counterArgument: z
+    .object({
+      title: z.string().describe("A short title for the constructive counter-argument (<= 8 words)."),
+      body: z
+        .string()
+        .describe("2-3 sentences of constructive critique of THIS recommendation: what to check first, where it might not hold."),
+    })
+    .nullable()
+    .describe("A constructive counter-argument, or null when there is no genuinely useful one to make."),
+});
+export type OptionResponse = z.infer<typeof OptionResponseSchema>;

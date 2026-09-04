@@ -28,7 +28,6 @@ import { TypewriterText } from "./typewriter-text";
 import { useSoftness } from "./softness-context";
 import { useSourceStyle } from "./source-style-context";
 import { getSquirclePath } from "@/lib/squircle";
-import { classifyNote } from "@/lib/mockAI";
 import AITextLoading from "@/components/kokonutui/ai-text-loading";
 import type { CanvasNodeData, FeedbackContext, HighlightSpan } from "@/lib/types";
 
@@ -292,15 +291,10 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
   function handleSubmitNoteClick() {
     const text = noteDraft.trim();
     if (!text) return;
-    const intent = classifyNote(text);
-    const label = isChoice
-      ? intent === "refine_in_place"
-        ? "Rewriting the options…"
-        : "Taking your framing…"
-      : intent === "refine_in_place"
-        ? "Rewriting this card…"
-        : "Opening a new direction…";
-    setPendingLabel(label);
+    // The refine-vs-branch intent is now classified server-side in the note
+    // flow (canvas-screen.tsx), so it isn't known here without a second call
+    // — show one neutral label while that runs.
+    setPendingLabel("Working on your note…");
     onSubmitNote(id, text);
     setNoteDraft("");
     setNoteOpen(false);

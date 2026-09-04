@@ -125,3 +125,39 @@ export const ContinuationSchema = z.object({
     .describe("2-3 sentences carrying this direction one concrete step further. No invented statistics."),
 });
 export type Continuation = z.infer<typeof ContinuationSchema>;
+
+/**
+ * Note flow (Phase 2). A user's context note is first classified, then turned
+ * into either a revision (refine) or a new card (branch).
+ */
+
+/** classifyNote — refine the card in place, or branch a new direction. */
+export const NoteIntentSchema = z.object({
+  intent: z
+    .enum(["refine_in_place", "branch_new_direction"])
+    .describe(
+      "'branch_new_direction' only when the note clearly says the card is wrong or the real issue is different. Otherwise 'refine_in_place' (adjust this card)."
+    ),
+});
+export type NoteIntentResult = z.infer<typeof NoteIntentSchema>;
+
+/** Refine-in-place on a plain card, or a branched new card — both a title+body. */
+export const CardContentSchema = z.object({
+  title: z.string().describe("A short, imperative title (<= 8 words)."),
+  body: z.string().describe("2-3 plain sentences. No invented statistics."),
+});
+export type CardContent = z.infer<typeof CardContentSchema>;
+
+/** Refine-in-place on a choice card — a regenerated set of framing options. */
+export const RefinedOptionsSchema = z.object({
+  options: z
+    .array(
+      z.object({
+        title: z.string().describe("A short option label (<= 6 words)."),
+        subtitle: z.string().describe("One sentence expanding the option."),
+      })
+    )
+    .length(3)
+    .describe("Exactly 3 fresh framing options that reflect the user's note."),
+});
+export type RefinedOptions = z.infer<typeof RefinedOptionsSchema>;

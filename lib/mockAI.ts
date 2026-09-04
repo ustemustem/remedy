@@ -21,7 +21,6 @@ import type {
   CanvasEdgeData,
   ChoiceOption,
   FeedbackContext,
-  EvidenceExample,
   SummarySegment,
   ReadoutSegment,
   SessionStats,
@@ -59,46 +58,6 @@ function id(prefix: string) {
 
 function edge(source: string, target: string): CanvasEdgeData {
   return { id: `e-${source}-${target}`, source, target };
-}
-
-const MOCK_MATCH_FACTORS = [
-  { label: "Team size fit", weight: 34 },
-  { label: "Stated pain points", weight: 28 },
-  { label: "Budget band", weight: 21 },
-  { label: "Peer adoption in cohort", weight: 17 },
-];
-
-// Deliberately generic — role/company-size descriptors only, never a specific
-// invented name. Illustrative placeholder for future real sourcing (PRD
-// Section 7), not real LinkedIn/company data.
-const EVIDENCE_POOL: Record<EvidenceExample["kind"], EvidenceExample[]> = {
-  linkedin: [
-    { kind: "linkedin", label: "Engineering Manager, mid-size SaaS company", detail: "Cut sprint slippage by narrowing WIP limits before changing tooling." },
-    { kind: "linkedin", label: "Head of Delivery, B2B platform team", detail: "Reported steadier sprint completion after the same approach." },
-  ],
-  app: [
-    { kind: "app", label: "Project tracking tool, mid-market tier", detail: "Usage data shows teams with several active initiatives adopt this pattern first." },
-    { kind: "app", label: "Sprint planning add-on", detail: "Most-enabled setting among teams reporting improved predictability." },
-  ],
-  company: [
-    { kind: "company", label: "50-150 employee software company", detail: "Case study cohort where this recommendation was most effective." },
-    { kind: "company", label: "Series B product company", detail: "Matched cohort with similar team size and process maturity." },
-  ],
-};
-
-let evidenceCycleIndex = 0;
-function mockEvidenceExamples(): EvidenceExample[] {
-  const i = evidenceCycleIndex % 2;
-  evidenceCycleIndex += 1;
-  return [EVIDENCE_POOL.linkedin[i], EVIDENCE_POOL.app[i], EVIDENCE_POOL.company[i]];
-}
-
-function mockPeerOutcome(cohortSize: number, definition: string): CanvasNodeData["peerOutcome"] {
-  return {
-    cohortSize,
-    cohortDefinition: definition,
-    bars: [42, 58, 71, 65, 80, 74],
-  };
 }
 
 function refFor(n: DashboardNeed): SummarySegment {
@@ -457,44 +416,25 @@ export async function getOptionResponse(
 
 export type NoteIntent = "refine_in_place" | "branch_new_direction";
 
-// Keyword heuristics for the mock — a real model call drops in here later
-// without touching any call site, since every caller only ever sees the two
-// labels back. Turkish equivalents included since this repo's prototype
-// audience has tested in both languages.
-const BRANCH_SIGNALS = [
-  "none of these",
-  "neither",
-  "actually",
-  "real issue",
-  "real problem",
-  "that's not",
-  "thats not",
-  "isn't the",
-  "isnt the",
-  "not the issue",
-  "different approach",
-  "instead of that",
-  "rather than",
-  "mine is",
-  "asıl sorun",
-  "aslında",
-  "bu değil",
-  "hiçbiri",
-];
-
 /**
  * Classifies a context note into one of two intents. Defaults to
  * `refine_in_place` — a note only branches when it clearly signals "this
  * card is wrong," not merely "adjust this."
  */
-export function classifyNote(text: string): NoteIntent {
-  const t = text.toLowerCase();
-  return BRANCH_SIGNALS.some((s) => t.includes(s)) ? "branch_new_direction" : "refine_in_place";
+export async function classifyNote(text: string): Promise<NoteIntent> {
+  const res = await fetch("/api/canvas/classify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note: text }),
+  });
+  if (!res.ok) {
+    // Don't block the note on a classify failure — fall back to the safe intent.
+    return "refine_in_place";
+  }
+  const { intent } = (await res.json()) as { intent: NoteIntent };
+  return intent;
 }
 
-function trim(s: string, n = 46): string {
-  return s.length > n ? s.slice(0, n).trim() + "…" : s;
-}
 
 /**
  * `refine_in_place` on a PLAIN card — new title/body for the SAME node
@@ -506,13 +446,25 @@ export async function refinePlainCard(
   note: string,
   feedbackContext?: FeedbackContext
 ): Promise<{ title: string; body: string }> {
-  await delay();
-  const { matchedLiked } = biasFor(note, feedbackContext);
-  let body = `Adjusted for what you said — "${trim(note)}". Keep the same direction, but size it to what you actually described, not the default.`;
-  if (matchedLiked) {
-    body += `\n\n(Weighted toward the "${matchedLiked}" theme you liked.)`;
+  const res = await fetch("/api/canvas/note", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      op: "refine-plain",
+      parentTitle: baseTitle(node),
+      parentBody: node.body,
+      kind: node.kind,
+      note,
+      liked: feedbackContext?.liked ?? [],
+      disliked: feedbackContext?.disliked ?? [],
+    }),
+  });
+  if (!res.ok) {
+    const detail = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(detail?.error ?? `Refine failed (${res.status}).`);
   }
-  return { title: baseTitle(node), body };
+  const { content } = (await res.json()) as { content: { title: string; body: string } };
+  return content;
 }
 
 /**
@@ -526,15 +478,25 @@ export async function refineChoiceOptions(
   note: string,
   feedbackContext?: FeedbackContext
 ): Promise<ChoiceOption[]> {
-  await delay();
-  void node;
-  void note;
-  void feedbackContext;
-  return [
-    { title: "Priorities are reset from outside", subtitle: "Someone above the team changes the order mid-sprint." },
-    { title: "Work is started before it's ready", subtitle: "Tickets enter the sprint without a clear definition of done." },
-    { title: "Nobody owns the sequencing call", subtitle: "When two things collide, there's no one to break the tie." },
-  ];
+  const res = await fetch("/api/canvas/note", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      op: "refine-options",
+      parentTitle: node.question ?? baseTitle(node),
+      parentBody: node.body,
+      kind: node.kind,
+      note,
+      liked: feedbackContext?.liked ?? [],
+      disliked: feedbackContext?.disliked ?? [],
+    }),
+  });
+  if (!res.ok) {
+    const detail = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(detail?.error ?? `Refine options failed (${res.status}).`);
+  }
+  const { options } = (await res.json()) as { options: ChoiceOption[] };
+  return options;
 }
 
 /**
@@ -548,48 +510,50 @@ export async function branchFromNote(
   note: string,
   feedbackContext?: FeedbackContext
 ): Promise<{ node: CanvasNodeData; edge: CanvasEdgeData }> {
-  await delay();
-
   const nextDepth = node.depth + 1;
 
   if (shouldConclude(nextDepth, feedbackContext)) {
     return clarifyingNode(node.id, nextDepth);
   }
 
-  const { delta, matchedLiked } = biasFor(note, feedbackContext);
-  const isCounter = node.kind === "counter-argument";
-  let body = isCounter
-    ? `Taking your framing — "${trim(note)}". Worth checking first whether this changes the underlying assumption before locking in the next step.`
-    : `Taking your framing — "${trim(note)}". Here's a next step built around that instead.`;
-  if (!isCounter && matchedLiked) {
-    body += `\n\n(Weighted toward the "${matchedLiked}" theme you liked.)`;
+  const res = await fetch("/api/canvas/note", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      op: "branch-plain",
+      parentTitle: baseTitle(node),
+      parentBody: node.body,
+      kind: node.kind,
+      note,
+      liked: feedbackContext?.liked ?? [],
+      disliked: feedbackContext?.disliked ?? [],
+    }),
+  });
+  if (!res.ok) {
+    const detail = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(detail?.error ?? `Branch failed (${res.status}).`);
   }
+  const { content } = (await res.json()) as { content: { title: string; body: string } };
 
   const now = new Date().toISOString();
-  const title = isCounter ? "Counter-argument" : "New direction";
   const branch: CanvasNodeData = {
     id: id("branch"),
+    // A redirected card keeps its kind — a counter-argument branched is still
+    // a counter-argument (the prompt is told to keep it a caution).
     kind: node.kind,
-    title,
-    body,
+    title: content.title,
+    body: content.body,
     parentId: node.id,
     depth: nextDepth,
     selected: false,
     cardType: "plain",
-    revisions: [{ revision: 1, title, body, note: null, createdAt: now }],
+    revisions: [
+      { revision: 1, title: content.title, body: content.body, note: null, createdAt: now },
+    ],
     activeRevision: 1,
     origin: { intent: "branch_new_direction", note },
     createdUnderRevision: node.activeRevision ?? 1,
-    // Counter-argument cards never carry the dashboard-only match fields —
-    // same convention as every other counter-argument node in this file.
-    ...(isCounter
-      ? {}
-      : {
-          matchScore: clamp(75 + delta, 40, 99),
-          retentionRate: clamp(78 + delta, 40, 99),
-          transparency: "organic" as const,
-          evidenceExamples: mockEvidenceExamples(),
-        }),
+    // No fabricated numbers — the fit signal and evidence are Phase 3.
     groupId: node.groupId,
     groupLabel: node.groupLabel,
   };
@@ -608,49 +572,52 @@ export async function branchFromChoiceFraming(
   framing: string,
   feedbackContext?: FeedbackContext
 ): Promise<{ node: CanvasNodeData; edge: CanvasEdgeData }> {
-  await delay();
-
   const nextDepth = node.depth + 1;
 
   if (shouldConclude(nextDepth, feedbackContext)) {
     return clarifyingNode(node.id, nextDepth);
   }
 
-  const { delta, matchedLiked } = biasFor(framing, feedbackContext);
-  let body = `Since "${trim(framing).toLowerCase()}", the move is to tighten scope reviews to once a week and cap active workstreams at 3 per person before revisiting tooling.`;
-  if (matchedLiked) {
-    body += `\n\n(Weighted toward the "${matchedLiked}" theme you liked.)`;
+  const res = await fetch("/api/canvas/note", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      op: "branch-framing",
+      parentTitle: node.question ?? baseTitle(node),
+      parentBody: node.body,
+      kind: node.kind,
+      note: framing,
+      liked: feedbackContext?.liked ?? [],
+      disliked: feedbackContext?.disliked ?? [],
+    }),
+  });
+  if (!res.ok) {
+    const detail = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(detail?.error ?? `Branch failed (${res.status}).`);
   }
+  const { content } = (await res.json()) as { content: { title: string; body: string } };
 
   const now = new Date().toISOString();
-  const title = "Given your framing";
   const branch: CanvasNodeData = {
     id: id("branch"),
     kind: "recommendation",
-    title,
-    body,
+    title: content.title,
+    body: content.body,
     parentId: node.id,
     depth: nextDepth,
     selected: false,
     cardType: "plain",
-    revisions: [{ revision: 1, title, body, note: null, createdAt: now }],
+    revisions: [
+      { revision: 1, title: content.title, body: content.body, note: null, createdAt: now },
+    ],
     activeRevision: 1,
-    // Skipping the A/B/C picker for your own words is just as much a
-    // redirect as branchFromNote — the report's "From your note" marker
+    // Skipping the A/B/C picker for your own words is just as much a redirect
+    // as branchFromNote — the report's "From your note" marker
     // (need-summary-list.tsx) reads this same origin.intent, so both paths
-    // must set it the same way.
+    // set it the same way.
     origin: { intent: "branch_new_direction", note: framing },
     createdUnderRevision: node.activeRevision ?? 1,
-    matchScore: clamp(79 + delta, 40, 99),
-    retentionRate: clamp(81 + delta, 40, 99),
-    // Picking an A/B/C option (or accepting your own typed framing) is an
-    // organic user decision, not a paid placement — sponsored should come
-    // from a genuinely distinct source later, not be the default outcome
-    // of the primary pick flow.
-    transparency: "organic",
-    matchFactors: MOCK_MATCH_FACTORS,
-    peerOutcome: mockPeerOutcome(268, "teams that picked this option, last 12 months"),
-    evidenceExamples: mockEvidenceExamples(),
+    // No fabricated numbers — the fit signal and evidence are Phase 3.
     groupId: node.groupId,
     groupLabel: node.groupLabel,
   };
@@ -660,30 +627,5 @@ export async function branchFromChoiceFraming(
 
 function baseTitle(node: CanvasNodeData) {
   return node.title.replace(/\s\(v\d+\)$/, "");
-}
-
-/**
- * Mock feedback loop: if the text being branched from touches a theme the
- * user liked/disliked (via the hover menu), nudge the score and — when a
- * liked theme actually matched — say so in the generated body.
- */
-function biasFor(
-  text: string,
-  feedbackContext?: FeedbackContext
-): { delta: number; matchedLiked?: string } {
-  if (!feedbackContext) return { delta: 0 };
-  const lower = text.toLowerCase();
-  const matchedLiked = feedbackContext.liked.find((t) => lower.includes(t.toLowerCase()));
-  const matchedDisliked = feedbackContext.disliked.find((t) =>
-    lower.includes(t.toLowerCase())
-  );
-  let delta = 0;
-  if (matchedLiked) delta += 8;
-  if (matchedDisliked) delta -= 8;
-  return { delta, matchedLiked };
-}
-
-function clamp(n: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, n));
 }
 

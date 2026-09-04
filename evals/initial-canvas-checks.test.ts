@@ -36,6 +36,26 @@ describe("checkInitialGraphStructure", () => {
   it("passes a well-formed graph", () => {
     expect(checkInitialGraphStructure(goodGraph()).every((r) => r.pass)).toBe(true);
   });
+  it("fails when the source node is missing", () => {
+    const g = goodGraph();
+    g.nodes = g.nodes.filter((n) => n.kind !== "source");
+    const r = checkInitialGraphStructure(g).find((x) => x.name === "one-source");
+    expect(r?.pass).toBe(false);
+  });
+  it("fails when there are two source nodes", () => {
+    const g = goodGraph();
+    const src = g.nodes.find((n) => n.kind === "source")!;
+    g.nodes.push({ ...src, id: "s2" });
+    const r = checkInitialGraphStructure(g).find((x) => x.name === "one-source");
+    expect(r?.pass).toBe(false);
+  });
+  it("fails when the source node is not at depth 0", () => {
+    const g = goodGraph();
+    const src = g.nodes.find((n) => n.kind === "source")!;
+    src.depth = 1;
+    const r = checkInitialGraphStructure(g).find((x) => x.name === "one-source");
+    expect(r?.pass).toBe(false);
+  });
   it("fails when the counter-argument is missing", () => {
     const g = goodGraph();
     g.nodes = g.nodes.filter((n) => n.kind !== "counter-argument");

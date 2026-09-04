@@ -738,8 +738,10 @@ export function CanvasScreen({
       const node = graph.nodes.find((n) => n.id === nodeId);
       if (!node) return;
 
-      const intent = classifyNote(note);
+      // Set pending first so the card shows its loading state during the
+      // (now real, async) classify call as well as the content call.
       setPendingNodeIds((prev) => new Set(prev).add(nodeId));
+      const intent = await classifyNote(note);
 
       if (node.cardType === "choice") {
         if (intent === "branch_new_direction") {

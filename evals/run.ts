@@ -8,7 +8,11 @@
 import { loadEnvLocal } from "./env";
 import { SEED_VENTS } from "./seed-vents";
 import { schemaValid } from "./checks";
-import { checkInitialGraphStructure, checkAskVsGuess } from "./initial-canvas-checks";
+import {
+  checkInitialGraphStructure,
+  checkAskVsGuess,
+  checkRawHighlightsVerbatim,
+} from "./initial-canvas-checks";
 import { aggregate, formatReport, type VentResult } from "./score";
 import { readInitialCanvas, assembleInitialGraph } from "../lib/llm/initial-canvas";
 import { InitialReadingSchema } from "../lib/llm/schemas";
@@ -22,8 +26,17 @@ interface Args {
 function parseArgs(argv: string[]): Args {
   const args: Args = { locale: "en" };
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === "--limit") args.limit = Number(argv[++i]);
-    else if (argv[i] === "--locale") {
+    if (argv[i] === "--limit") {
+      const raw = argv[++i];
+      const n = Number(raw);
+      if (!Number.isInteger(n) || n <= 0) {
+        console.error(
+          `--limit must be a positive integer, got ${JSON.stringify(raw ?? "")} — refusing to run the full seed set by accident.`
+        );
+        process.exit(2);
+      }
+      args.limit = n;
+    } else if (argv[i] === "--locale") {
       const v = argv[++i];
       if (v === "en" || v === "tr") args.locale = v;
     }
@@ -50,6 +63,7 @@ async function main() {
       const checks = [
         schemaValid(InitialReadingSchema, reading),
         ...checkInitialGraphStructure(graph),
+        checkRawHighlightsVerbatim(reading.highlights, vent.text),
         checkAskVsGuess(reading.inputQuality, vent.thin),
       ];
       results.push({

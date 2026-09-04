@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { checkInitialGraphStructure, checkAskVsGuess } from "./initial-canvas-checks";
+import {
+  checkInitialGraphStructure,
+  checkAskVsGuess,
+  checkRawHighlightsVerbatim,
+} from "./initial-canvas-checks";
 import type { CanvasGraph } from "../lib/types";
 
 function goodGraph(): CanvasGraph {
@@ -69,18 +73,39 @@ describe("checkInitialGraphStructure", () => {
     const r = checkInitialGraphStructure(g).find((x) => x.name === "suggestion-choice-3-options");
     expect(r?.pass).toBe(false);
   });
-  it("fails when a highlight is not a verbatim substring of the vent", () => {
-    const g = goodGraph();
-    const src = g.nodes.find((n) => n.kind === "source")!;
-    src.highlights = [{ id: "h", text: "not in the vent", primaryTag: "X" }];
-    const r = checkInitialGraphStructure(g).find((x) => x.name === "highlights-verbatim");
-    expect(r?.pass).toBe(false);
-  });
   it("fails when an edge points at a missing node", () => {
     const g = goodGraph();
     g.edges.push({ id: "e3", source: "s", target: "ghost" });
     const r = checkInitialGraphStructure(g).find((x) => x.name === "edges-resolve");
     expect(r?.pass).toBe(false);
+  });
+});
+
+describe("checkRawHighlightsVerbatim", () => {
+  const vent = "our sprint deadlines keep slipping and nobody owns priorities";
+
+  it("passes when every emitted highlight is a verbatim substring of the vent", () => {
+    const r = checkRawHighlightsVerbatim(
+      [{ text: "deadlines keep slipping" }, { text: "nobody owns priorities" }],
+      vent
+    );
+    expect(r.name).toBe("highlights-verbatim");
+    expect(r.pass).toBe(true);
+  });
+
+  it("fails when at least one emitted highlight is a paraphrase, not a substring", () => {
+    const r = checkRawHighlightsVerbatim(
+      [{ text: "deadlines keep slipping" }, { text: "priorities are unowned" }],
+      vent
+    );
+    expect(r.name).toBe("highlights-verbatim");
+    expect(r.pass).toBe(false);
+  });
+
+  it("passes when the model emitted no highlights", () => {
+    const r = checkRawHighlightsVerbatim([], vent);
+    expect(r.name).toBe("highlights-verbatim");
+    expect(r.pass).toBe(true);
   });
 });
 

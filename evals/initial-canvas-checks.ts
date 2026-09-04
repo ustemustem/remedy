@@ -5,8 +5,9 @@ import type { CheckResult } from "./checks";
  * Structural gate for a getInitialCanvas graph (roadmap §04 structural
  * validity). Pure — no model calls. Asserts the assembled graph matches the
  * shape the canvas expects: exactly one source at depth 0, a 3-option
- * Suggestion choice card and a Counter-argument at depth 1, highlights that are
- * verbatim substrings of the vent, and edges that resolve to real nodes.
+ * Suggestion choice card and a Counter-argument at depth 1, and edges that
+ * resolve to real nodes. Highlight fidelity is checked separately, against
+ * the model's raw output — see checkRawHighlightsVerbatim below.
  */
 export function checkInitialGraphStructure(graph: CanvasGraph): CheckResult[] {
   const results: CheckResult[] = [];
@@ -41,17 +42,6 @@ export function checkInitialGraphStructure(graph: CanvasGraph): CheckResult[] {
     detail: counter ? undefined : "no counter-argument node",
   });
 
-  const source = sources[0];
-  const highlightsVerbatim =
-    !source || !source.highlights
-      ? true
-      : source.highlights.every((h) => source.body.includes(h.text));
-  results.push({
-    name: "highlights-verbatim",
-    pass: highlightsVerbatim,
-    detail: highlightsVerbatim ? undefined : "a highlight is not a substring of the vent",
-  });
-
   const ids = new Set(graph.nodes.map((n) => n.id));
   const edgesResolve = graph.edges.every((e) => ids.has(e.source) && ids.has(e.target));
   results.push({
@@ -61,6 +51,32 @@ export function checkInitialGraphStructure(graph: CanvasGraph): CheckResult[] {
   });
 
   return results;
+}
+
+/**
+ * Highlight fidelity, checked against the model's RAW output (roadmap §04).
+ * assembleInitialGraph silently drops any highlight that isn't a verbatim
+ * substring of the vent, so checking the assembled graph can never fail. This
+ * runs on what the MODEL actually emitted, so it catches a model that
+ * paraphrases highlights (they'd be dropped) instead of copying verbatim.
+ * Passes when the model emitted no highlights, or every emitted highlight is a
+ * verbatim substring of the vent; fails when it emitted >=1 that is not.
+ */
+export function checkRawHighlightsVerbatim(
+  rawHighlights: ReadonlyArray<{ text: string }>,
+  ventText: string
+): CheckResult {
+  const nonVerbatim = rawHighlights.filter((h) => !ventText.includes(h.text));
+  return {
+    name: "highlights-verbatim",
+    pass: nonVerbatim.length === 0,
+    detail:
+      nonVerbatim.length === 0
+        ? undefined
+        : `${nonVerbatim.length} model highlight(s) not verbatim: ${nonVerbatim
+            .map((h) => JSON.stringify(h.text))
+            .join(", ")}`,
+  };
 }
 
 /**

@@ -33,10 +33,18 @@ function requireApiKey(): string {
 
 let cached: Anthropic | null = null;
 
-/** Lazily-constructed singleton so the key is only read when a call is made. */
+/** Lazily-constructed singleton so the key is only read when a call is made.
+ *
+ * Identity-linked API keys must say which workspace each request acts in. If
+ * ANTHROPIC_WORKSPACE_ID is set we send it as the `anthropic-workspace-id`
+ * header; a plain workspace-scoped key doesn't need it and can leave it unset. */
 export function getClient(): Anthropic {
   if (cached === null) {
-    cached = new Anthropic({ apiKey: requireApiKey() });
+    const workspaceId = process.env.ANTHROPIC_WORKSPACE_ID?.trim();
+    cached = new Anthropic({
+      apiKey: requireApiKey(),
+      ...(workspaceId ? { defaultHeaders: { "anthropic-workspace-id": workspaceId } } : {}),
+    });
   }
   return cached;
 }

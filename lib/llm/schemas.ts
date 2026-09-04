@@ -112,3 +112,16 @@ export const OptionResponseSchema = z.object({
     .describe("A constructive counter-argument, or null when there is no genuinely useful one to make."),
 });
 export type OptionResponse = z.infer<typeof OptionResponseSchema>;
+
+/**
+ * getPreferredContinuation (Phase 2): the user clicked "Prefer this option" to
+ * keep going in a card's direction. The model returns the single next step, to
+ * be rendered in the same kind as the card it continues.
+ */
+export const ContinuationSchema = z.object({
+  title: z.string().describe("A short, imperative title for the next step (<= 8 words)."),
+  body: z
+    .string()
+    .describe("2-3 sentences carrying this direction one concrete step further. No invented statistics."),
+});
+export type Continuation = z.infer<typeof ContinuationSchema>;

@@ -299,50 +299,48 @@ export async function getPreferredContinuation(
   node: CanvasNodeData,
   feedbackContext?: FeedbackContext
 ): Promise<{ node: CanvasNodeData; edge: CanvasEdgeData }> {
-  await delay();
-
   const nextDepth = node.depth + 1;
 
   if (shouldConclude(nextDepth, feedbackContext)) {
     return clarifyingNode(node.id, nextDepth);
   }
 
-  const { delta, matchedLiked } = biasFor(`${node.title} ${node.body}`, feedbackContext);
-  let body = `Continuing with "${baseTitle(node)}". The next concrete step is to lock this in with the team this week, then check back in after the first cycle.`;
-  if (matchedLiked) {
-    body += `\n\n(Weighted toward the "${matchedLiked}" theme you liked.)`;
+  const res = await fetch("/api/canvas/prefer", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: baseTitle(node),
+      body: node.body,
+      kind: node.kind,
+      liked: feedbackContext?.liked ?? [],
+      disliked: feedbackContext?.disliked ?? [],
+    }),
+  });
+  if (!res.ok) {
+    const detail = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(detail?.error ?? `Continuation failed (${res.status}).`);
   }
+  const { continuation } = (await res.json()) as { continuation: { title: string; body: string } };
 
   const now = new Date().toISOString();
-  const title = baseTitle(node);
   const next: CanvasNodeData = {
     id: id("next"),
     // Continuing a card keeps its own kind — a counter-argument "Prefer"'d
     // into its next step is still a counter-argument, not a suggestion.
-    // Hardcoding "recommendation" here used to leave the eyebrow (which
-    // reads nodeData.kind) and the carried-over title (baseTitle(node),
-    // still literally "Counter-argument") disagreeing with each other.
     kind: node.kind,
-    title,
-    body,
+    title: continuation.title,
+    body: continuation.body,
     parentId: node.id,
     depth: nextDepth,
     selected: false,
     cardType: "plain",
-    revisions: [{ revision: 1, title, body, note: null, createdAt: now }],
+    revisions: [
+      { revision: 1, title: continuation.title, body: continuation.body, note: null, createdAt: now },
+    ],
     activeRevision: 1,
     origin: null,
     createdUnderRevision: node.activeRevision ?? 1,
-    matchScore:
-      node.matchScore != null ? clamp(node.matchScore + swing() + delta, 40, 99) : undefined,
-    retentionRate:
-      node.retentionRate != null
-        ? clamp(node.retentionRate + swing() + delta, 40, 99)
-        : undefined,
-    transparency: node.transparency,
-    matchFactors: node.matchFactors,
-    peerOutcome: node.peerOutcome,
-    evidenceExamples: mockEvidenceExamples(),
+    // No fabricated numbers carried over — the fit signal and evidence are Phase 3.
     groupId: node.groupId,
     groupLabel: node.groupLabel,
   };
@@ -662,10 +660,6 @@ export async function branchFromChoiceFraming(
 
 function baseTitle(node: CanvasNodeData) {
   return node.title.replace(/\s\(v\d+\)$/, "");
-}
-
-function swing() {
-  return Math.round((Math.random() - 0.3) * 10);
 }
 
 /**

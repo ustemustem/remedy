@@ -334,10 +334,91 @@
    the definition instead. .report-scope overrides --card for every Card
    under it (report screen only; canvas cards are untouched). */
 .report-scope {
-  --card: var(--report-card);
+  /* ── Cotton Bond paper skin — REPORT SURFACE ONLY ─────────────────────
+     Warm paper neutrals are declared only here, so the global cool palette
+     (chat + canvas) is untouched. See docs/REPORT_PAPER_RESKIN.md. */
+  --paper: #f4f2eb; /* Cotton Bond sheet */
+  --paper-desk: #dedbd0; /* ground the sheet sits on */
+  --paper-card: #ffffff; /* card surface, on the sheet */
+  --paper-panel: #faf8f3; /* inset panels (evidence benchmark) */
+  --paper-hair: rgba(31, 72, 56, 0.13); /* warm hairline (brand-green tint) */
+
+  /* Re-point the report's surface tokens at the paper values. Report cards
+     render white on the cream sheet; the page ground becomes the desk; card
+     borders warm to the brand-green hairline. */
+  --card: var(--paper-card);
+  --report-card: var(--paper-card);
+  --background: var(--paper-desk);
+  --border: var(--paper-hair);
+  background: var(--paper-desk);
 }
 .report-card-surface {
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--color-foreground) 6%, transparent);
+  /* One soft, low shadow — a white card lifting off the cream sheet. Scoped
+     to the report; the global "flat/matte" rule is unaffected. */
+  box-shadow:
+    0 1px 2px rgba(31, 72, 56, 0.06),
+    0 4px 14px -8px rgba(31, 72, 56, 0.1);
+}
+
+/* The Cotton Bond sheet the whole report body sits on. */
+.report-sheet {
+  position: relative;
+  background: var(--paper);
+  border: 1px solid var(--paper-hair);
+  border-radius: 3px;
+  box-shadow:
+    0 1px 1px rgba(0, 0, 0, 0.04),
+    0 8px 24px -6px rgba(31, 72, 56, 0.09),
+    0 22px 54px -14px rgba(0, 0, 0, 0.13);
+}
+/* Letterhead at the top of the sheet. */
+.report-letterhead {
+  border-bottom: 1px solid var(--paper-hair);
+}
+
+/* Dashed tear-line + soft blended edge notches — the paper "perforation"
+   between the reading-column sections. Notches take the desk color so they
+   read as punched into the sheet rather than sitting on top of it. */
+.report-tear {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 4px 0;
+}
+.report-tear-rule {
+  flex: 1;
+  height: 0;
+  border-top: 2px dashed rgba(31, 72, 56, 0.26);
+}
+.report-notch {
+  position: absolute;
+  top: 50%;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  transform: translateY(-50%);
+  background: var(--paper-desk);
+  box-shadow: inset 0 1px 1.5px rgba(31, 72, 56, 0.07);
+}
+.report-notch-l {
+  left: -16px;
+}
+.report-notch-r {
+  right: -16px;
+}
+
+/* Print: the sheet flattens to plain paper — drop the desk ground, shadow,
+   and rounded edge so an exported PDF is a clean white page. */
+@media print {
+  .report-scope {
+    background: #fff !important;
+  }
+  .report-sheet {
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    background: #fff !important;
+  }
 }
 
 /* Report redesign: header + each section + the terminal footer fade/rise in

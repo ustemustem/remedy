@@ -3,16 +3,20 @@
 import { useEffect, useRef } from "react";
 import { ArrowLeft, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { deriveDashboardNeeds } from "@/lib/graph";
 import { PrescriptionReport } from "./prescription-report";
 import { ExitPoll } from "./exit-poll";
 import type { CanvasGraph } from "@/lib/types";
 
 export function DashboardScreen({
   graph,
+  sessionId,
   onBackToCanvas,
   onReset,
 }: {
   graph: CanvasGraph;
+  /** The real session id — becomes the letterhead REF / footer control number. */
+  sessionId?: string | null;
   /** Returns to the canvas without resetting — the graph is untouched by Finalize. */
   onBackToCanvas: () => void;
   onReset: () => void;
@@ -20,22 +24,33 @@ export function DashboardScreen({
   // Report redesign / animation handoff: on mount (right after the loader's
   // exit, or a direct session-sidebar restore into this step) focus moves
   // into the report container — an intentional a11y handoff from the
-  // loader's status region, not just "focus starts wherever the DOM puts it".
+  // loader's status region.
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     scrollRef.current?.focus();
   }, []);
 
+  // Real, honest letterhead values — derived from the actual session/graph,
+  // never fabricated (see docs/REPORT_PAPER_RESKIN.md, requirement 3).
+  // DashboardScreen only mounts after a client-side step change (page.tsx is a
+  // client component that starts on "chat"), so it never server-renders in the
+  // real flow — computing the date at render is safe and hydration-neutral.
+  const issued = new Date().toLocaleDateString("en-US", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+  const prescribedCount = deriveDashboardNeeds(graph.nodes).length;
+  const ref = sessionId
+    ? sessionId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8).toUpperCase()
+    : null;
+
   return (
     <div className="report-scope flex h-full flex-col bg-background">
+      {/* Screen chrome — sits above the sheet, hidden in print/export. */}
       <header className="report-print-hide report-reveal-in flex shrink-0 items-center justify-between border-b border-border px-4 py-2.5">
-        <div className="space-y-1">
-          {/* eslint-disable-next-line @next/next/no-img-element -- static local SVG, no optimization needed */}
-          <img src="/logo.svg" alt="Remedy" className="h-7 w-auto" />
-          <h1 className="font-mono text-lg font-bold text-foreground">
-            Verified prescription
-          </h1>
-        </div>
+        {/* eslint-disable-next-line @next/next/no-img-element -- static local SVG, no optimization needed */}
+        <img src="/logo.svg" alt="Remedy" className="h-7 w-auto" />
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={onBackToCanvas}>
             <ArrowLeft className="h-3.5 w-3.5" />
@@ -48,25 +63,59 @@ export function DashboardScreen({
         </div>
       </header>
 
-      {/* This screen's own scroll region — the report body can run much
-          taller than the viewport, but only THIS area should scroll; the
-          header above stays put and the session sidebar (a sibling outside
-          this component, in page.tsx) has its own independent scroll
-          region. tabIndex=-1 + the focus effect above make this the
-          loader's a11y handoff target without adding it to normal Tab
-          order. */}
+      {/* This screen's own scroll region — the report body can run much taller
+          than the viewport, but only THIS area scrolls. tabIndex=-1 + the focus
+          effect make it the loader's a11y handoff target. */}
       <div ref={scrollRef} tabIndex={-1} className="flex-1 overflow-y-auto outline-none">
-        {/* Report layout A: 1184 - 32px of padding = 1152, which is exactly
-            780 (document column) + 32 (gap) + 340 (session rail). The reading
-            column keeps the measure it had when this was a lone centred
-            780px block; the rail is built out of the margin that used to sit
-            empty either side of it. */}
-        <div className="mx-auto max-w-[1184px] px-4 pb-16">
-          <PrescriptionReport nodes={graph.nodes} />
-        </div>
+        <div className="mx-auto max-w-[1240px] px-4 py-7 pb-16 sm:px-8">
+          {/* The Cotton Bond sheet the whole report sits on. */}
+          <div className="report-sheet report-reveal-in">
+            {/* Letterhead / masthead. */}
+            <header className="report-letterhead flex flex-col gap-2.5 px-6 py-4 sm:px-8">
+              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[color:var(--paper-hair)] pb-3">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-[22px] w-[22px] items-center justify-center rounded-[4px] bg-primary font-mono text-[11px] font-bold text-primary-foreground">
+                    Rx
+                  </span>
+                  <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-primary">
+                    Remedy Clinical Discovery · Verified Prescription
+                  </span>
+                </div>
+                {ref && (
+                  <span className="font-mono text-[11px] tracking-[0.04em] text-primary/65">
+                    REF <span className="font-bold text-primary">#{ref}</span>
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[10px] uppercase tracking-[0.07em] text-muted-foreground">
+                {issued && <span>Issued: {issued}</span>}
+                <span className="flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                  {prescribedCount} prescribed
+                </span>
+              </div>
+            </header>
 
-        <div className="report-print-hide">
-          <ExitPoll />
+            {/* Report body. */}
+            <div className="px-4 py-5 sm:px-8 sm:py-7">
+              <PrescriptionReport nodes={graph.nodes} />
+            </div>
+
+            {/* Verification stamp — an honest control number from the real REF. */}
+            <footer className="flex items-center justify-between gap-4 border-t border-[color:var(--paper-hair)] px-6 py-3 sm:px-8">
+              <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
+                Control no. {ref ?? "—"}
+              </span>
+              <span className="font-mono text-[9px] uppercase tracking-[0.06em] text-primary/50">
+                Remedy Clinical Discovery
+              </span>
+            </footer>
+          </div>
+
+          {/* Exit poll — inline, at the very bottom, after the sheet. */}
+          <div className="report-print-hide report-reveal-in mx-auto mt-6 max-w-[760px]">
+            <ExitPoll />
+          </div>
         </div>
       </div>
     </div>

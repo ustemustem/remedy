@@ -139,7 +139,17 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
           </div>
         </ReportSection>
 
-        <div className="report-reveal-in mt-[22px]" style={{ animationDelay: "220ms" }}>
+        <div
+          className="report-tear report-reveal-in mt-[22px]"
+          style={{ animationDelay: "180ms" }}
+          aria-hidden="true"
+        >
+          <span className="report-notch report-notch-l" />
+          <span className="report-tear-rule" />
+          <span className="report-notch report-notch-r" />
+        </div>
+
+        <div className="report-reveal-in mt-4" style={{ animationDelay: "220ms" }}>
           <SectionHead index={2} title="Your prescription" />
           <div className="space-y-3">
             {feed.hero && <PrescriptionCard need={feed.hero} />}

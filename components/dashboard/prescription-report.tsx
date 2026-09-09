@@ -139,7 +139,17 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
           </div>
         </ReportSection>
 
-        <div className="report-reveal-in mt-[22px]" style={{ animationDelay: "220ms" }}>
+        <div
+          className="report-sep report-reveal-in mt-[22px]"
+          style={{ animationDelay: "180ms" }}
+          aria-hidden="true"
+        >
+          <span className="report-sep-line" />
+          <span className="report-sep-mark">℞</span>
+          <span className="report-sep-line" />
+        </div>
+
+        <div className="report-reveal-in mt-4" style={{ animationDelay: "220ms" }}>
           <SectionHead index={2} title="Your prescription" />
           <div className="space-y-3">
             {feed.hero && <PrescriptionCard need={feed.hero} />}
@@ -167,7 +177,7 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
       </div>
 
       <aside className="report-rail min-w-0 mt-[22px] min-[1024px]:mt-0">
-        <div className="min-[1024px]:sticky min-[1024px]:top-0">
+        <div className="min-[1024px]:sticky min-[1024px]:top-[22px]">
           <div className="report-reveal-in" style={{ animationDelay: "140ms" }}>
             <SectionHead title="How we read your situation" />
             <Card className="report-card-surface">

@@ -185,7 +185,12 @@ export default function Home() {
         sourceStyle={sourceStyle}
       />
     ) : step === "dashboard" ? (
-      <DashboardScreen graph={graph} onBackToCanvas={handleBackToCanvas} onReset={handleReset} />
+      <DashboardScreen
+        graph={graph}
+        sessionId={sessionId}
+        onBackToCanvas={handleBackToCanvas}
+        onReset={handleReset}
+      />
     ) : (
       <>
         <ChatEntryScreen onSubmit={handleChatSubmit} loading={loading} />

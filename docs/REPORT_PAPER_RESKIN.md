@@ -63,3 +63,20 @@ badge · 5-metric session strip + readout + theme columns · Export / Share.
 accents · ✅ mono-upper labels vs sentence-case actions · ✅ locked radii for controls/cards ·
 ⚠️ the soft sheet shadow + warm paper neutrals are a documented, report-scoped departure
 (above), consistent with the report redesign's existing `report-card-surface` shadow.
+
+### v2 — refinement pass (2026-09-09)
+
+Owner-requested polish; report surface only. Verified in the dev server; `eslint` clean and
+`tsc --noEmit` clean.
+
+| Change | File(s) |
+|---|---|
+| **Courier Prime** replaces IBM Plex Mono **for the report only**. The `@theme` block is `inline`, so `font-mono`/`font-heading` compile to `var(--font-plex-mono)`; `.report-scope` re-points that underlying var to `--font-courier` (loaded via `next/font` in `layout.tsx`). Chat + canvas keep IBM Plex Mono. | `app/layout.tsx`, `app/globals.css` |
+| Clinical letterhead (`Rx · Remedy Clinical Discovery · Verified Prescription`) → a calm **"Your Prescription"** heading + a slim REMEDY / REF·date kicker + a one-line summary. | `components/dashboard/dashboard-screen.tsx` |
+| Edge-notch tear-line → a **℞ dashed separator** confined to the document column — the old notches collided with the session rail on the right. | `app/globals.css`, `components/dashboard/prescription-report.tsx` |
+| Session rail sticky offset `top-0` → `top-[22px]` (breathing room on scroll). | `components/dashboard/prescription-report.tsx` |
+| Card surface `#ffffff` → warm **`#fbf8f0`**; inset panel `#faf8f3` → `#f5f1e7` (less harsh white). | `app/globals.css` |
+
+**Font note:** Courier Prime for the report changes the previously-locked "IBM Plex Mono only"
+decision — but it is scoped to `.report-scope`, so it is a report-surface treatment, not an
+app-wide font change (chat + canvas are unchanged).

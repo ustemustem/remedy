@@ -70,30 +70,26 @@ export function DashboardScreen({
         <div className="mx-auto max-w-[1240px] px-4 py-7 pb-16 sm:px-8">
           {/* The Cotton Bond sheet the whole report sits on. */}
           <div className="report-sheet report-reveal-in">
-            {/* Letterhead / masthead. */}
-            <header className="report-letterhead flex flex-col gap-2.5 px-6 py-4 sm:px-8">
-              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[color:var(--paper-hair)] pb-3">
-                <div className="flex items-center gap-2.5">
-                  <span className="flex h-[22px] w-[22px] items-center justify-center rounded-[4px] bg-primary font-mono text-[11px] font-bold text-primary-foreground">
-                    Rx
-                  </span>
-                  <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-primary">
-                    Remedy Clinical Discovery · Verified Prescription
-                  </span>
-                </div>
-                {ref && (
-                  <span className="font-mono text-[11px] tracking-[0.04em] text-primary/65">
-                    REF <span className="font-bold text-primary">#{ref}</span>
-                  </span>
-                )}
-              </div>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[10px] uppercase tracking-[0.07em] text-muted-foreground">
-                {issued && <span>Issued: {issued}</span>}
-                <span className="flex items-center gap-1.5">
-                  <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                  {prescribedCount} prescribed
+            {/* Heading — a calm document title in place of the old clinical
+                "Rx · Remedy Clinical Discovery · Verified Prescription" letterhead. */}
+            <header className="report-letterhead flex flex-col gap-3.5 px-6 py-6 sm:px-8">
+              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+                <span className="font-bold text-primary">Remedy</span>
+                <span>
+                  {ref && (
+                    <>
+                      REF <span className="font-bold text-primary">#{ref}</span> ·{" "}
+                    </>
+                  )}
+                  {issued}
                 </span>
               </div>
+              <h1 className="font-mono text-[26px] font-bold tracking-[-0.01em] text-foreground">
+                Your Prescription
+              </h1>
+              <p className="max-w-[60ch] text-[length:var(--text-body)] text-muted-foreground">
+                {`${prescribedCount} needs read from your session, and what we’d do about them — with the evidence behind each call.`}
+              </p>
             </header>
 
             {/* Report body. */}

@@ -73,8 +73,7 @@ export function DashboardScreen({
             {/* Heading — a calm document title in place of the old clinical
                 "Rx · Remedy Clinical Discovery · Verified Prescription" letterhead. */}
             <header className="report-letterhead flex flex-col gap-3.5 px-6 py-6 sm:px-8">
-              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
-                <span className="font-bold text-primary">Remedy</span>
+              <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
                 <span>
                   {ref && (
                     <>

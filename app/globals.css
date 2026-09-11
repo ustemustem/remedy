@@ -371,7 +371,47 @@
 /* The Cotton Bond sheet the whole report body sits on. */
 .report-sheet {
   position: relative;
-  background: var(--paper);
+  /* "Vintage editorial paper" — the Figma shader (owner ustemberkay, id
+     e4a07d9e…) reproduced as a STATIC, scoped, live-tunable background. The
+     shader manifest is isAnimated:false and its fragment never reads time, so a
+     live WebGPU/GL shader would spend the GPU redrawing one frozen frame. This
+     reproduces the same look — warm cream, faint amber diagonal pinstripes, fine
+     procedural grain (SVG feTurbulence), optional vignette — at zero runtime
+     cost, from the user's own art (no watermark/licensing). Colors sampled from
+     the Figma render. Report content cards paint opaque on top, so body text
+     never sits on texture; the texture reads in the letterhead, margins, section
+     gaps and footer, like real stock.
+
+     Every knob is a --report-paper-* custom property with an inline default,
+     driven live by the Experiments panel's Paper texture section
+     (components/paper-texture-controls.tsx) and bakeable back here. The grain
+     LAYER is a whole url() the panel regenerates (feTurbulence baseFrequency +
+     rect opacity baked in); the fallback below is the default grain. */
+  background-color: var(--report-paper-base, var(--paper));
+  background-image:
+    var(
+      --report-paper-grain-image,
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.5' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23g)' opacity='0.8'/%3E%3C/svg%3E")
+    ),
+    radial-gradient(
+      130% 120% at 50% 35%,
+      transparent 52%,
+      rgb(70 50 22 / var(--report-paper-vignette, 0.1)) 100%
+    ),
+    repeating-linear-gradient(
+      var(--report-paper-stripe-angle, 55deg),
+      rgb(var(--report-paper-stripe-color, 200 148 62) / var(--report-paper-stripe-opacity, 0.12)) 0,
+      rgb(var(--report-paper-stripe-color, 200 148 62) / var(--report-paper-stripe-opacity, 0.12))
+        var(--report-paper-stripe-width, 0.7px),
+      transparent var(--report-paper-stripe-width, 0.7px),
+      transparent var(--report-paper-stripe-space, 5px)
+    );
+  background-repeat: repeat, no-repeat, repeat;
+  background-size:
+    120px 120px,
+    cover,
+    auto;
+  background-blend-mode: soft-light, multiply, normal;
   border: 1px solid var(--paper-hair);
   border-radius: 3px;
   box-shadow:
@@ -399,18 +439,11 @@
 }
 .report-sep-mark {
   flex: 0 0 auto;
-  display: flex;
-  width: 28px;
-  height: 28px;
-  align-items: center;
-  justify-content: center;
+  width: 10px;
+  height: 10px;
   border: 1px solid var(--paper-hair);
   border-radius: 50%;
   background: var(--paper-panel);
-  font-family: var(--font-plex-mono);
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--primary);
 }
 
 /* Print: the sheet flattens to plain paper — drop the desk ground, shadow,
@@ -687,4 +720,105 @@
   background-size: 16px 16px;
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 65%);
   mask-image: linear-gradient(to bottom, transparent 0%, black 65%);
+}
+
+/* Submit-button "preparing" state — a subtle light sweeps the button's rim while
+   Remedy generates, with a soft ambient glow and a gentle breathing pulse.
+   Sky-style (cf. @skybysoftware / @ludwig), dialed deliberately subtle. Values
+   locked in the Button Thinking lab: sweep 0.5 / 1.2px / 4.5s, glow 0.3,
+   breathing on. Scoped to a button carrying .btn-thinking with data-thinking —
+   today the chat submit button (components/chat-entry-screen.tsx); the stage
+   text's blur+fade lives in AITextLoading's opt-in `blur` prop. */
+@property --btn-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+.btn-thinking {
+  position: relative;
+}
+/* The button is disabled while thinking only to block a second submit — keep it
+   fully opaque (not the default disabled 50%) so the sweep reads. */
+.btn-thinking[data-thinking="true"]:disabled {
+  opacity: 1;
+}
+/* Stable width so the cycling stage text doesn't jitter the button each swap. */
+.btn-thinking[data-thinking="true"] {
+  min-width: 156px;
+  animation: btn-breathe 2.6s ease-in-out infinite;
+}
+.btn-sweep {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 300ms var(--ease-out);
+  z-index: 0;
+}
+.btn-thinking[data-thinking="true"] .btn-sweep {
+  opacity: 0.5;
+}
+.btn-sweep::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.2px;
+  background: conic-gradient(
+    from var(--btn-angle),
+    transparent 0deg,
+    transparent 248deg,
+    rgba(255, 255, 255, 0.95) 320deg,
+    transparent 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+.btn-sweep::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  z-index: -1;
+  background: conic-gradient(
+    from var(--btn-angle),
+    transparent 0deg,
+    transparent 250deg,
+    rgba(255, 255, 255, 0.9) 322deg,
+    transparent 360deg
+  );
+  filter: blur(5px);
+  opacity: 0.3;
+}
+.btn-thinking[data-thinking="true"] .btn-sweep::before,
+.btn-thinking[data-thinking="true"] .btn-sweep::after {
+  animation: btn-spin 4.5s linear infinite;
+}
+@keyframes btn-spin {
+  to {
+    --btn-angle: 360deg;
+  }
+}
+@keyframes btn-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.012);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn-thinking[data-thinking="true"],
+  .btn-thinking[data-thinking="true"] .btn-sweep::before,
+  .btn-thinking[data-thinking="true"] .btn-sweep::after {
+    animation: none;
+  }
 }

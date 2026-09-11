@@ -17,6 +17,7 @@
 import { FlaskConical, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import { PaperTextureControls, usePaperTextureState } from "@/components/paper-texture-controls";
 
 export function ExperimentOverlay({
   optionRadius,
@@ -59,6 +60,10 @@ export function ExperimentOverlay({
   onLinkWeightChange: (weight: "subtle" | "bold") => void;
 }) {
   const [open, setOpen] = useState(false);
+  // Paper-texture state lives here (ExperimentOverlay is always mounted in
+  // page.tsx), so tuning the report sheet's shader persists even while this
+  // flask panel is collapsed. See components/paper-texture-controls.tsx.
+  const [paperTexture, setPaperTexture] = usePaperTextureState();
 
   if (!open) {
     return (
@@ -74,8 +79,8 @@ export function ExperimentOverlay({
   }
 
   return (
-    <div className="fixed right-4 top-16 z-50 w-72 rounded-[var(--radius-surface)] border border-border bg-card shadow-lg">
-      <div className="flex items-center justify-between border-b border-border p-3">
+    <div className="fixed right-4 top-16 z-50 flex max-h-[calc(100vh-5rem)] w-72 flex-col rounded-[var(--radius-surface)] border border-border bg-card shadow-lg">
+      <div className="flex shrink-0 items-center justify-between border-b border-border p-3">
         <p className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
           Experiments
         </p>
@@ -88,7 +93,7 @@ export function ExperimentOverlay({
         </button>
       </div>
 
-      <div className="space-y-4 p-3">
+      <div className="space-y-4 overflow-y-auto p-3">
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold text-foreground">Option card radius</p>
@@ -220,6 +225,10 @@ export function ExperimentOverlay({
               </button>
             ))}
           </div>
+        </div>
+
+        <div className="border-t border-border pt-4">
+          <PaperTextureControls value={paperTexture} onChange={setPaperTexture} />
         </div>
       </div>
     </div>

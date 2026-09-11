@@ -371,7 +371,47 @@
 /* The Cotton Bond sheet the whole report body sits on. */
 .report-sheet {
   position: relative;
-  background: var(--paper);
+  /* "Vintage editorial paper" — the Figma shader (owner ustemberkay, id
+     e4a07d9e…) reproduced as a STATIC, scoped, live-tunable background. The
+     shader manifest is isAnimated:false and its fragment never reads time, so a
+     live WebGPU/GL shader would spend the GPU redrawing one frozen frame. This
+     reproduces the same look — warm cream, faint amber diagonal pinstripes, fine
+     procedural grain (SVG feTurbulence), optional vignette — at zero runtime
+     cost, from the user's own art (no watermark/licensing). Colors sampled from
+     the Figma render. Report content cards paint opaque on top, so body text
+     never sits on texture; the texture reads in the letterhead, margins, section
+     gaps and footer, like real stock.
+
+     Every knob is a --report-paper-* custom property with an inline default,
+     driven live by the Experiments panel's Paper texture section
+     (components/paper-texture-controls.tsx) and bakeable back here. The grain
+     LAYER is a whole url() the panel regenerates (feTurbulence baseFrequency +
+     rect opacity baked in); the fallback below is the default grain. */
+  background-color: var(--report-paper-base, var(--paper));
+  background-image:
+    var(
+      --report-paper-grain-image,
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.5' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23g)' opacity='0.8'/%3E%3C/svg%3E")
+    ),
+    radial-gradient(
+      130% 120% at 50% 35%,
+      transparent 52%,
+      rgb(70 50 22 / var(--report-paper-vignette, 0.1)) 100%
+    ),
+    repeating-linear-gradient(
+      var(--report-paper-stripe-angle, 55deg),
+      rgb(var(--report-paper-stripe-color, 200 148 62) / var(--report-paper-stripe-opacity, 0.12)) 0,
+      rgb(var(--report-paper-stripe-color, 200 148 62) / var(--report-paper-stripe-opacity, 0.12))
+        var(--report-paper-stripe-width, 0.7px),
+      transparent var(--report-paper-stripe-width, 0.7px),
+      transparent var(--report-paper-stripe-space, 5px)
+    );
+  background-repeat: repeat, no-repeat, repeat;
+  background-size:
+    120px 120px,
+    cover,
+    auto;
+  background-blend-mode: soft-light, multiply, normal;
   border: 1px solid var(--paper-hair);
   border-radius: 3px;
   box-shadow:
@@ -399,18 +439,11 @@
 }
 .report-sep-mark {
   flex: 0 0 auto;
-  display: flex;
-  width: 28px;
-  height: 28px;
-  align-items: center;
-  justify-content: center;
+  width: 10px;
+  height: 10px;
   border: 1px solid var(--paper-hair);
   border-radius: 50%;
   background: var(--paper-panel);
-  font-family: var(--font-plex-mono);
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--primary);
 }
 
 /* Print: the sheet flattens to plain paper — drop the desk ground, shadow,

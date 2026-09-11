@@ -172,13 +172,22 @@ export function ChatEntryScreen({
             variant="cta"
             onClick={handleSubmit}
             disabled={loading || text.trim().length === 0}
+            data-thinking={loading}
+            className="btn-thinking"
           >
             {loading ? (
-              <AITextLoading
-                texts={LOADING_STAGES}
-                interval={700}
-                className="text-[var(--cta-foreground)]"
-              />
+              <>
+                {/* "Preparing" state: a subtle light sweeps the button rim while
+                    Remedy generates. See .btn-thinking / .btn-sweep in
+                    globals.css (values picked in the Button Thinking lab). */}
+                <span className="btn-sweep" aria-hidden="true" />
+                <AITextLoading
+                  texts={LOADING_STAGES}
+                  interval={700}
+                  blur
+                  className="relative z-[1] text-[var(--cta-foreground)]"
+                />
+              </>
             ) : (
               <>
                 Send

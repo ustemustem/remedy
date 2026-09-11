@@ -721,3 +721,104 @@
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 65%);
   mask-image: linear-gradient(to bottom, transparent 0%, black 65%);
 }
+
+/* Submit-button "preparing" state — a subtle light sweeps the button's rim while
+   Remedy generates, with a soft ambient glow and a gentle breathing pulse.
+   Sky-style (cf. @skybysoftware / @ludwig), dialed deliberately subtle. Values
+   locked in the Button Thinking lab: sweep 0.5 / 1.2px / 4.5s, glow 0.3,
+   breathing on. Scoped to a button carrying .btn-thinking with data-thinking —
+   today the chat submit button (components/chat-entry-screen.tsx); the stage
+   text's blur+fade lives in AITextLoading's opt-in `blur` prop. */
+@property --btn-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+.btn-thinking {
+  position: relative;
+}
+/* The button is disabled while thinking only to block a second submit — keep it
+   fully opaque (not the default disabled 50%) so the sweep reads. */
+.btn-thinking[data-thinking="true"]:disabled {
+  opacity: 1;
+}
+/* Stable width so the cycling stage text doesn't jitter the button each swap. */
+.btn-thinking[data-thinking="true"] {
+  min-width: 156px;
+  animation: btn-breathe 2.6s ease-in-out infinite;
+}
+.btn-sweep {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 300ms var(--ease-out);
+  z-index: 0;
+}
+.btn-thinking[data-thinking="true"] .btn-sweep {
+  opacity: 0.5;
+}
+.btn-sweep::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.2px;
+  background: conic-gradient(
+    from var(--btn-angle),
+    transparent 0deg,
+    transparent 248deg,
+    rgba(255, 255, 255, 0.95) 320deg,
+    transparent 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+.btn-sweep::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  z-index: -1;
+  background: conic-gradient(
+    from var(--btn-angle),
+    transparent 0deg,
+    transparent 250deg,
+    rgba(255, 255, 255, 0.9) 322deg,
+    transparent 360deg
+  );
+  filter: blur(5px);
+  opacity: 0.3;
+}
+.btn-thinking[data-thinking="true"] .btn-sweep::before,
+.btn-thinking[data-thinking="true"] .btn-sweep::after {
+  animation: btn-spin 4.5s linear infinite;
+}
+@keyframes btn-spin {
+  to {
+    --btn-angle: 360deg;
+  }
+}
+@keyframes btn-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.012);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn-thinking[data-thinking="true"],
+  .btn-thinking[data-thinking="true"] .btn-sweep::before,
+  .btn-thinking[data-thinking="true"] .btn-sweep::after {
+    animation: none;
+  }
+}

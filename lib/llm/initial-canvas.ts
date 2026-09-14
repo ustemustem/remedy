@@ -1,5 +1,5 @@
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { getClient, MODELS } from "./client";
+import { getClient, MODELS, isLlmMock } from "./client";
 import { initialCanvasSystemPrompt, type Locale } from "./prompts";
 import { InitialReadingSchema, type InitialReading } from "./schemas";
 import type { Usage } from "./telemetry";
@@ -16,11 +16,51 @@ function rid(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+/**
+ * A canned reading for LLM_MOCK mode — no API call. Highlights are sliced from
+ * the real vent so they render (assembleInitialGraph keeps only verbatim
+ * substrings), and the copy is plainly marked as a mock so it's never mistaken
+ * for a real model answer. A short delay mimics latency so the loading
+ * animations show. Zero usage → telemetry logs a $0 call.
+ */
+async function mockInitialReading(
+  chatText: string
+): Promise<{ reading: InitialReading; usage: Usage }> {
+  await new Promise((r) => setTimeout(r, 700));
+  const words = chatText.trim().split(/\s+/).filter(Boolean);
+  const spanA = words.slice(0, Math.min(6, words.length)).join(" ");
+  const spanB = words.length > 11 ? words.slice(6, 11).join(" ") : "";
+  const highlights: InitialReading["highlights"] = [
+    ...(spanA && chatText.includes(spanA) ? [{ text: spanA, primaryTag: "Core issue" }] : []),
+    ...(spanB && chatText.includes(spanB) ? [{ text: spanB, primaryTag: "Signal" }] : []),
+  ];
+  const reading: InitialReading = {
+    inputQuality: "workable",
+    highlights,
+    suggestion: {
+      title: "Name the real bottleneck first",
+      body: "Get everyone to agree on the single point where things actually break before fixing anything — a shared, specific diagnosis stops three people solving three different problems. (Mock mode — no model was called.)",
+      question: "Where do you want to start?",
+      options: [
+        { title: "Map the current flow", subtitle: "Write down each step end to end and mark where it stalls." },
+        { title: "Ask the people closest", subtitle: "Short 1:1s with whoever hits the wall most often." },
+        { title: "Look at the data", subtitle: "Pull the numbers on where time is actually being lost." },
+      ],
+    },
+    counterArgument: {
+      title: "Don't over-diagnose",
+      body: "Mapping everything can become its own delay. If one cause is already obvious, run a small fix this week and learn from it instead of studying the problem for a month. (Mock mode.)",
+    },
+  };
+  return { reading, usage: {} };
+}
+
 /** Calls the model and returns the parsed reading plus raw usage for telemetry. */
 export async function readInitialCanvas(
   chatText: string,
   locale: Locale
 ): Promise<{ reading: InitialReading; usage: Usage }> {
+  if (isLlmMock()) return mockInitialReading(chatText);
   const client = getClient();
   const msg = await client.messages.parse({
     model: MODELS.reasoning,

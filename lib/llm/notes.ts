@@ -1,5 +1,5 @@
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { getClient, MODELS } from "./client";
+import { getClient, MODELS, isLlmMock } from "./client";
 import {
   classifyNoteSystemPrompt,
   noteContentSystemPrompt,
@@ -22,6 +22,13 @@ export async function classifyNoteReal(
   note: string,
   locale: Locale
 ): Promise<{ intent: "refine_in_place" | "branch_new_direction"; usage: Usage }> {
+  if (isLlmMock()) {
+    await new Promise((r) => setTimeout(r, 300));
+    // Heuristic so both paths are testable: a corrective note branches, else refine.
+    const branchy =
+      /\b(wrong|different|instead|actually|rather|no,|off base|not it|missed|misunderstood)\b/i.test(note);
+    return { intent: branchy ? "branch_new_direction" : "refine_in_place", usage: {} };
+  }
   const client = getClient();
   const msg = await client.messages.parse({
     model: MODELS.cheap,
@@ -49,6 +56,19 @@ export async function readNoteContent(
   ctx: NoteContext,
   locale: Locale
 ): Promise<{ content: CardContent; usage: Usage }> {
+  if (isLlmMock()) {
+    await new Promise((r) => setTimeout(r, 600));
+    const branch = op.startsWith("branch");
+    return {
+      content: {
+        title: branch ? "A new direction from your note" : "Adjusted to your note",
+        body:
+          `Taking your note (“${ctx.note}”) into account, here's ${branch ? "a different angle on" : "a tightened version of"} ` +
+          `“${ctx.parentTitle}” — shaped so it addresses that directly. (mock)`,
+      },
+      usage: {},
+    };
+  }
   const client = getClient();
   const userContent =
     `The card (kind: ${ctx.kind}):\n` +
@@ -75,6 +95,17 @@ export async function readRefinedOptions(
   ctx: NoteContext,
   locale: Locale
 ): Promise<{ options: RefinedOptions["options"]; usage: Usage }> {
+  if (isLlmMock()) {
+    await new Promise((r) => setTimeout(r, 550));
+    return {
+      options: [
+        { title: "Reframe A", subtitle: `Shaped by your note: “${ctx.note}”. (mock)` },
+        { title: "Reframe B", subtitle: "A more cautious take that checks assumptions first. (mock)" },
+        { title: "Reframe C", subtitle: "A bolder take that moves faster with less certainty. (mock)" },
+      ],
+      usage: {},
+    };
+  }
   const client = getClient();
   const userContent =
     `The choice card's question:\n${ctx.parentTitle}\n` +

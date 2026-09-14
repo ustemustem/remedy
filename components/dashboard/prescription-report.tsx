@@ -145,7 +145,7 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
           aria-hidden="true"
         >
           <span className="report-sep-line" />
-          <span className="report-sep-mark">℞</span>
+          <span className="report-sep-mark" />
           <span className="report-sep-line" />
         </div>
 

@@ -664,16 +664,22 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
                 <Button
                   size="sm"
                   variant="outline-cta"
-                  className="nodrag"
+                  className="nodrag btn-thinking"
+                  data-thinking={pending}
                   disabled={pending}
                   onClick={() => onPreferOption(id)}
                 >
                   {pending ? (
-                    <AITextLoading
-                      texts={CARD_LOADING_STAGES}
-                      interval={700}
-                      className="text-[length:var(--text-label)] text-current"
-                    />
+                    <>
+                      <span className="btn-sweep" aria-hidden="true" />
+                      <AITextLoading
+                        texts={CARD_LOADING_STAGES}
+                        interval={2000}
+                        blur
+                        stableWidth
+                        className="relative z-[1] text-[length:var(--text-label)] text-current"
+                      />
+                    </>
                   ) : (
                     <>
                       Prefer this option

@@ -15,8 +15,14 @@ import { withMinDuration } from "@/lib/timing";
 const MARK_PATH =
   "M12.0017 115.739C72.0341 24.2835 74.3089 260 79.8132 88.0518C82.809 -5.5347 201.916 33.9293 141.81 106.5C81.7031 179.071 118.545 209.808 180.309 157.5";
 
-const MIN_VISIBLE_MS = 1700;
-const WORKING_AFTER_MS = 1050;
+// The draw+dot intro is now ~2.55s (stroke 1.75s, then the dot fades in at
+// 1.95s over 0.6s — see .rl-* in globals.css). MIN_VISIBLE_MS floors the whole
+// loader above that so a fast (mock) generateReport can't trigger the exit
+// mid-intro, and WORKING_AFTER_MS (the fallback under the dot's animationend
+// that flips draw->working) sits just past the dot's finish so it never cuts
+// the draw short.
+const MIN_VISIBLE_MS = 3000;
+const WORKING_AFTER_MS = 2700;
 // Fix C (animation handoff §5, short-term half): was 2100ms, arbitrary and
 // unrelated to the real ~2.5-4s generateReport() promise. Aligned to
 // MIN_VISIBLE_MS instead so the final "present-continuous" status can never

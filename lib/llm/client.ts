@@ -50,6 +50,20 @@ export function getClient(): Anthropic {
 }
 
 /**
+ * Mock mode. When `LLM_MOCK` is set (`.env.local`), the seams return canned
+ * fixtures instead of calling the API, so the ENTIRE real request path — route
+ * handlers, zod validation, telemetry, graph assembly, and the client render —
+ * runs end to end with no API key and no cost. Dev/testing only: it lets you
+ * click through the real flow (and see the loading animations) for free. A real
+ * key is not consulted while this is on. Read at call time so toggling it only
+ * needs a dev-server restart (Next reads env at startup).
+ */
+export function isLlmMock(): boolean {
+  const v = process.env.LLM_MOCK?.trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes" || v === "on";
+}
+
+/**
  * Model tiers, per the roadmap §02. `reasoning` carries graph generation,
  * summaries, the fit signal, and grounded recommendations; `cheap` handles
  * the one-enum / one-sentence seams (classifyNote, readout). Escalate a

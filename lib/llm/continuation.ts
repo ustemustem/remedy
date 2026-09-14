@@ -1,5 +1,5 @@
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { getClient, MODELS } from "./client";
+import { getClient, MODELS, isLlmMock } from "./client";
 import { preferredContinuationSystemPrompt, feedbackContextLine, type Locale } from "./prompts";
 import { ContinuationSchema, type Continuation } from "./schemas";
 import type { Usage } from "./telemetry";
@@ -14,10 +14,25 @@ export interface ContinuationContext {
   disliked: string[];
 }
 
+/** LLM_MOCK fixture — carries the card's direction one concrete step further. */
+async function mockContinuation(
+  ctx: ContinuationContext
+): Promise<{ continuation: Continuation; usage: Usage }> {
+  await new Promise((r) => setTimeout(r, 550));
+  return {
+    continuation: {
+      title: "Take it one step further",
+      body: `Building on “${ctx.title}”: name who owns the next action and when they'll report back, so this doesn't stall after the good idea. (mock)`,
+    },
+    usage: {},
+  };
+}
+
 export async function readPreferredContinuation(
   ctx: ContinuationContext,
   locale: Locale
 ): Promise<{ continuation: Continuation; usage: Usage }> {
+  if (isLlmMock()) return mockContinuation(ctx);
   const client = getClient();
 
   const userContent =

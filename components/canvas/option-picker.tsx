@@ -187,16 +187,22 @@ export function OptionPicker({
         <Button
           size="sm"
           variant={canSubmit ? "cta" : "outline-cta"}
-          className="nodrag"
+          className="nodrag btn-thinking"
+          data-thinking={disabled && canSubmit}
           disabled={!canSubmit || disabled}
           onClick={freeText ? onSubmitNote : onConfirm}
         >
           {disabled && canSubmit ? (
-            <AITextLoading
-              texts={PICK_LOADING_STAGES}
-              interval={700}
-              className="text-[length:var(--text-label)] text-current"
-            />
+            <>
+              <span className="btn-sweep" aria-hidden="true" />
+              <AITextLoading
+                texts={PICK_LOADING_STAGES}
+                interval={2000}
+                blur
+                stableWidth
+                className="relative z-[1] text-[length:var(--text-label)] text-current"
+              />
+            </>
           ) : (
             <>
               {/* The verb tracks the active answer: you "select" a numbered

@@ -173,7 +173,8 @@ export function ChatEntryScreen({
             onClick={handleSubmit}
             disabled={loading || text.trim().length === 0}
             data-thinking={loading}
-            className="btn-thinking"
+            data-breathe="true"
+            className={cn("btn-thinking", loading && "min-w-[156px]")}
           >
             {loading ? (
               <>
@@ -183,8 +184,9 @@ export function ChatEntryScreen({
                 <span className="btn-sweep" aria-hidden="true" />
                 <AITextLoading
                   texts={LOADING_STAGES}
-                  interval={700}
+                  interval={2000}
                   blur
+                  stableWidth
                   className="relative z-[1] text-[var(--cta-foreground)]"
                 />
               </>

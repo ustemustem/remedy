@@ -25,6 +25,13 @@ interface AITextLoadingProps {
    * feel — see components/chat-entry-screen.tsx and the .btn-thinking sweep.
    */
   blur?: boolean;
+  /**
+   * Reserve a fixed width equal to the widest stage (via a hidden sizer, with
+   * the cycling text centered over it) so a button never resizes as the text
+   * cycles between stages of different lengths. Opt-in — used by the thinking
+   * buttons; the block-level report/canvas summary loaders don't need it.
+   */
+  stableWidth?: boolean;
 }
 
 export default function AITextLoading({
@@ -38,6 +45,7 @@ export default function AITextLoading({
   className,
   interval = 1500,
   blur = false,
+  stableWidth = false,
 }: AITextLoadingProps) {
   const [currentTextIndex, setCurrentTextIndex] = useState(0);
 
@@ -49,6 +57,58 @@ export default function AITextLoading({
     return () => clearInterval(timer);
   }, [interval, texts.length]);
 
+  const cycling = (
+    <AnimatePresence mode="wait">
+      <motion.div
+        animate={{
+          opacity: 1,
+          y: 0,
+          backgroundPosition: ["200% center", "-200% center"],
+          ...(blur ? { filter: "blur(0px)" } : {}),
+        }}
+        className={cn(
+          "flex min-w-max justify-center whitespace-nowrap bg-[length:200%_100%] bg-gradient-to-r from-neutral-950 via-neutral-400 to-neutral-950 bg-clip-text text-sm font-medium text-transparent dark:from-white dark:via-neutral-600 dark:to-white",
+          className
+        )}
+        exit={blur ? { opacity: 0, y: -6, filter: "blur(3px)" } : { opacity: 0, y: -20 }}
+        initial={blur ? { opacity: 0, y: 6, filter: "blur(3px)" } : { opacity: 0, y: 20 }}
+        key={currentTextIndex}
+        transition={{
+          opacity: { duration: 0.3 },
+          y: { duration: 0.3 },
+          filter: { duration: 0.3 },
+          backgroundPosition: {
+            duration: 2.5,
+            ease: "linear",
+            repeat: Number.POSITIVE_INFINITY,
+          },
+        }}
+      >
+        {texts[currentTextIndex]}
+      </motion.div>
+    </AnimatePresence>
+  );
+
+  if (stableWidth) {
+    // A hidden sizer holds the widest stage; the cycling text is stacked on top
+    // of it and centered, so the box stays a constant width across stages.
+    const longest = texts.reduce((a, b) => (b.length >= a.length ? b : a), "");
+    return (
+      <span className="grid place-items-center">
+        <span
+          aria-hidden="true"
+          className={cn(
+            "invisible col-start-1 row-start-1 whitespace-nowrap text-sm font-medium",
+            className
+          )}
+        >
+          {longest}
+        </span>
+        <span className="col-start-1 row-start-1">{cycling}</span>
+      </span>
+    );
+  }
+
   return (
     <div className="flex items-center justify-center">
       <motion.div
@@ -57,35 +117,7 @@ export default function AITextLoading({
         initial={{ opacity: 0 }}
         transition={{ duration: 0.4 }}
       >
-        <AnimatePresence mode="wait">
-          <motion.div
-            animate={{
-              opacity: 1,
-              y: 0,
-              backgroundPosition: ["200% center", "-200% center"],
-              ...(blur ? { filter: "blur(0px)" } : {}),
-            }}
-            className={cn(
-              "flex min-w-max justify-center whitespace-nowrap bg-[length:200%_100%] bg-gradient-to-r from-neutral-950 via-neutral-400 to-neutral-950 bg-clip-text text-sm font-medium text-transparent dark:from-white dark:via-neutral-600 dark:to-white",
-              className
-            )}
-            exit={blur ? { opacity: 0, y: -6, filter: "blur(3px)" } : { opacity: 0, y: -20 }}
-            initial={blur ? { opacity: 0, y: 6, filter: "blur(3px)" } : { opacity: 0, y: 20 }}
-            key={currentTextIndex}
-            transition={{
-              opacity: { duration: 0.3 },
-              y: { duration: 0.3 },
-              filter: { duration: 0.3 },
-              backgroundPosition: {
-                duration: 2.5,
-                ease: "linear",
-                repeat: Number.POSITIVE_INFINITY,
-              },
-            }}
-          >
-            {texts[currentTextIndex]}
-          </motion.div>
-        </AnimatePresence>
+        {cycling}
       </motion.div>
     </div>
   );

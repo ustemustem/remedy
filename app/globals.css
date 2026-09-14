@@ -492,6 +492,9 @@
    path.getTotalLength() at runtime. */
 .rl-mark {
   --rl-len: 505;
+  /* The dot sits at the right edge of the viewBox and scales up while breathing;
+     visible overflow keeps it from being clipped. */
+  overflow: visible;
 }
 .rl-stroke {
   stroke: var(--color-primary);
@@ -524,24 +527,24 @@
   }
 }
 @keyframes rl-dot-pop-kf {
-  0% {
+  /* Subtle: a gentle fade + grow-in, no overshoot — the dot settles rather than
+     popping. Runs only after the stroke has finished drawing (see the delay). */
+  from {
     opacity: 0;
-    transform: scale(0.55);
+    transform: scale(0.6);
   }
-  70% {
-    opacity: 1;
-    transform: scale(1.14);
-  }
-  100% {
+  to {
     opacity: 1;
     transform: scale(1);
   }
 }
 .rl-mark.rl-draw .rl-stroke {
-  animation: rl-draw-in-kf 1s var(--ease-out) both;
+  animation: rl-draw-in-kf 1.75s var(--ease-out) both;
 }
 .rl-mark.rl-draw .rl-dot {
-  animation: rl-dot-pop-kf 0.5s var(--ease-out) 0.55s backwards;
+  /* delay = draw (1.75s) + gap (0.20s): the dot appears only after the mark
+     finishes drawing. */
+  animation: rl-dot-pop-kf 0.6s var(--ease-out) 1.95s backwards;
 }
 @keyframes rl-sheen-kf {
   from {
@@ -557,15 +560,15 @@
     transform: scale(1);
   }
   50% {
-    transform: scale(1.09);
+    transform: scale(1.3);
   }
 }
 .rl-mark.rl-working .rl-shimmer {
   opacity: 0.85;
-  animation: rl-sheen-kf 1.15s linear infinite;
+  animation: rl-sheen-kf 2s linear infinite;
 }
 .rl-mark.rl-working .rl-dot {
-  animation: rl-breathe-kf 1.4s var(--ease-out) infinite;
+  animation: rl-breathe-kf 1.6s var(--ease-out) infinite;
 }
 /* "Forward erase" — the stroke erases from its start point in the same
    direction it drew; the dot leaves with it, swept off as the erase
@@ -590,10 +593,10 @@
   }
 }
 .rl-mark.rl-exit .rl-stroke {
-  animation: rl-erase-kf 0.72s var(--ease-away) forwards;
+  animation: rl-erase-kf 0.9s var(--ease-away) forwards;
 }
 .rl-mark.rl-exit .rl-dot {
-  animation: rl-dot-out-kf 0.72s var(--ease-away) forwards;
+  animation: rl-dot-out-kf 0.9s var(--ease-away) forwards;
 }
 @media (prefers-reduced-motion: reduce) {
   .rl-mark .rl-stroke,
@@ -737,14 +740,24 @@
 .btn-thinking {
   position: relative;
 }
+/* Outline/ghost buttons have no fill for a white sweep to read against, so they
+   take the accent (orange) instead — the traveling light shows on the bordered
+   edge. Button sets data-variant, so this needs no per-call wiring. */
+.btn-thinking[data-variant="outline-cta"] {
+  --btn-sweep-color: var(--cta);
+}
 /* The button is disabled while thinking only to block a second submit — keep it
    fully opaque (not the default disabled 50%) so the sweep reads. */
 .btn-thinking[data-thinking="true"]:disabled {
   opacity: 1;
 }
-/* Stable width so the cycling stage text doesn't jitter the button each swap. */
-.btn-thinking[data-thinking="true"] {
-  min-width: 156px;
+/* Breathing pulse is opt-in via data-breathe. It's decoration that suits the
+   rarely-seen chat submit button, but per the frequency-of-use principle it's
+   dropped on the small, frequently-clicked canvas action buttons — there the
+   functional sweep alone carries the "thinking" signal. (The chat button also
+   pins its own width via a min-w utility so its cycling text can't jitter it;
+   the shorter canvas stages don't need it.) */
+.btn-thinking[data-breathe="true"][data-thinking="true"] {
   animation: btn-breathe 2.6s ease-in-out infinite;
 }
 .btn-sweep {
@@ -757,19 +770,19 @@
   z-index: 0;
 }
 .btn-thinking[data-thinking="true"] .btn-sweep {
-  opacity: 0.5;
+  opacity: 0.4;
 }
 .btn-sweep::before {
   content: "";
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  padding: 1.2px;
+  padding: 2px;
   background: conic-gradient(
     from var(--btn-angle),
     transparent 0deg,
     transparent 248deg,
-    rgba(255, 255, 255, 0.95) 320deg,
+    var(--btn-sweep-color, rgba(255, 255, 255, 0.95)) 320deg,
     transparent 360deg
   );
   -webkit-mask:
@@ -791,7 +804,7 @@
     from var(--btn-angle),
     transparent 0deg,
     transparent 250deg,
-    rgba(255, 255, 255, 0.9) 322deg,
+    var(--btn-sweep-color, rgba(255, 255, 255, 0.9)) 322deg,
     transparent 360deg
   );
   filter: blur(5px);
@@ -799,7 +812,7 @@
 }
 .btn-thinking[data-thinking="true"] .btn-sweep::before,
 .btn-thinking[data-thinking="true"] .btn-sweep::after {
-  animation: btn-spin 4.5s linear infinite;
+  animation: btn-spin 4s linear infinite;
 }
 @keyframes btn-spin {
   to {

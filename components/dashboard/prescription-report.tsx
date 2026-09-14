@@ -70,6 +70,9 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
   const needs = useMemo(() => deriveDashboardNeeds(nodes), [nodes]);
   const themes = useMemo(() => deriveThemeEntries(nodes), [nodes]);
   const feed = useMemo(() => deriveDashboardFeed(needs), [needs]);
+  // The Source node's body is the user's original vent — passed to the summary
+  // seam so the model summarizes what they actually came in with.
+  const vent = useMemo(() => nodes.find((n) => n.kind === "source")?.body ?? "", [nodes]);
   const [showHidden, setShowHidden] = useState(false);
 
   // Section 1's ref<->row two-way highlight, lifted here since UnderstoodSummary
@@ -124,6 +127,7 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
           <div className="space-y-3">
             <UnderstoodSummary
               needs={needs}
+              vent={vent}
               highlightedId={highlightedId}
               onEnter={handleEnter}
               onLeave={handleLeave}

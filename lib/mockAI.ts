@@ -26,23 +26,22 @@ import type {
   SessionStats,
 } from "./types";
 import type { DashboardNeed, ThemeEntry } from "./graph";
+import {
+  mapSummarySegments,
+  mapReadoutSegments,
+  fallbackUnderstoodSummary,
+  fallbackSessionReadout,
+} from "./report-segments";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function delay() {
-  return sleep(500 + Math.random() * 1000);
-}
-
 /**
  * Fake async: the canvas -> report loading transition's own promise (see
- * animation handoff). Distinct from getUnderstoodSummary's per-paragraph
- * delay below — this represents the overall "generating your prescription"
- * work the loader animation is timed against, not a proxy for any one
- * section's fetch. Owner-confirmed real generation time is ~2.5-4s, longer
- * than any other mock delay in this file, which is why it's a separate
- * function rather than reusing `delay()`.
+ * animation handoff). This represents the overall "generating your
+ * prescription" work the loader animation is timed against, not a proxy for
+ * any one section's fetch. Owner-confirmed real generation time is ~2.5-4s.
  */
 function reportGenerationDelay() {
   return sleep(2500 + Math.random() * 1500);
@@ -60,115 +59,63 @@ function edge(source: string, target: string): CanvasEdgeData {
   return { id: `e-${source}-${target}`, source, target };
 }
 
-function refFor(n: DashboardNeed): SummarySegment {
-  return {
-    type: "ref",
-    content: n.node.title.replace(/\s\(v\d+\)$/, "").toLowerCase(),
-    nodeId: n.node.id,
-  };
-}
-
-function text(content: string): SummarySegment {
-  return { type: "text", content };
-}
-
 /**
- * Fake async: mocked "what we understood" summary, built from the real
- * title/quote data `deriveDashboardNeeds` already derived — not invented
- * copy. Every need gets exactly one `ref` segment pointing at its own node
- * id, by construction — this mock can't currently produce a partial index
- * (see docs/DASHBOARD_REPORT_HANDOFF.md's Section 1 notes for why that's
- * an honest limitation of a templated mock, not a claim about how a real
- * LLM would behave here). The renderer's degrade path (no refs, or a ref
- * whose nodeId matches nothing) still has to exist for when this seam is
- * replaced with a real model call — see UnderstoodSummary.
+ * Real getUnderstoodSummary (Phase 3c) — POSTs the vent + kept needs to the
+ * report route (Haiku, key server-side) and maps the model's index-based
+ * segments back onto node ids. Falls back to the deterministic template on any
+ * error or offline, so the report always renders honest, session-faithful text.
  */
-export async function getUnderstoodSummary(needs: DashboardNeed[]): Promise<SummarySegment[]> {
-  await delay();
-
+export async function getUnderstoodSummary(
+  needs: DashboardNeed[],
+  vent = ""
+): Promise<SummarySegment[]> {
   if (needs.length === 0) return [];
-
-  if (needs.length === 1) {
-    return [text("You came in with one clear need: "), refFor(needs[0]), text(` — ${needs[0].quote}`)];
+  try {
+    const res = await fetch("/api/report/summary", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        vent,
+        needs: needs.map((n) => ({ label: baseTitle(n.node), quote: n.quote })),
+      }),
+    });
+    if (!res.ok) throw new Error(`summary ${res.status}`);
+    const { segments } = (await res.json()) as {
+      segments: { content: string; refIndex: number | null }[];
+    };
+    return mapSummarySegments(segments, needs);
+  } catch {
+    return fallbackUnderstoodSummary(needs);
   }
-
-  if (needs.length === 2) {
-    return [text("You came in with two needs: "), refFor(needs[0]), text(" and "), refFor(needs[1]), text(".")];
-  }
-
-  const [first, ...rest] = needs;
-  const segments: SummarySegment[] = [
-    text(`You came in with ${needs.length} needs. The one shaping everything else was `),
-    refFor(first),
-    text(` — ${first.quote}. Around it sat `),
-  ];
-  rest.forEach((n, i) => {
-    segments.push(refFor(n));
-    if (i < rest.length - 2) segments.push(text(", "));
-    else if (i === rest.length - 2) segments.push(text(", and "));
-  });
-  segments.push(text("."));
-  return segments;
-}
-
-function emphasis(content: string): ReadoutSegment {
-  return { content, emphasis: true };
-}
-
-function plain(content: string): ReadoutSegment {
-  return { content };
 }
 
 /**
- * Templated (not async — no LLM seam intended here, just canned copy keyed
- * off real derived data, same spirit as getUnderstoodSummary): the "how we
- * read your situation" paragraph for report Section 2. Reads the same
- * SessionStats and ThemeEntry[] the strip and theme columns already derive,
- * so the three pieces never disagree with each other.
+ * Real getSessionReadout (Phase 3c) — POSTs real session stats + themes to the
+ * report route (Haiku) and returns the "how we read your situation" paragraph.
+ * Falls back to the deterministic template on any error/offline. Replaces the
+ * former synchronous buildSessionReadout.
  */
-/**
- * Report Section 2's reading paragraph interprets what the strip's counts
- * MEAN (focus, trustworthiness of the shortlist, how much correcting it
- * took) rather than restating them — the strip already shows the raw
- * numbers, so this sentence deliberately avoids repeating them back
- * (report redesign, change B8).
- */
-export function buildSessionReadout(stats: SessionStats, themes: ThemeEntry[]): ReadoutSegment[] {
-  const segments: ReadoutSegment[] = [];
-  const liked = themes.filter((t) => t.type === "like");
-  const disliked = themes.filter((t) => t.type === "dislike");
-
-  // Clause 1: focus/breadth — how much exploring it took to get here.
-  if (stats.pathCount === 0) {
-    segments.push(plain("Nothing here needed a detour, "), emphasis("you knew what fit"), plain(" from the first pass."));
-  } else if (stats.pathCount <= stats.selectedCount) {
-    segments.push(plain("A "), emphasis("focused search"), plain(": what you explored converged fast."));
-  } else {
-    segments.push(plain("You "), emphasis("cast a wide net"), plain(" before narrowing down. What made the cut had to earn it."));
+export async function getSessionReadout(
+  stats: SessionStats,
+  themes: ThemeEntry[]
+): Promise<ReadoutSegment[]> {
+  try {
+    const res = await fetch("/api/report/readout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        stats,
+        themes: themes.map((t) => ({ theme: t.theme, type: t.type })),
+      }),
+    });
+    if (!res.ok) throw new Error(`readout ${res.status}`);
+    const { segments } = (await res.json()) as {
+      segments: { content: string; emphasis: boolean }[];
+    };
+    return mapReadoutSegments(segments);
+  } catch {
+    return fallbackSessionReadout(stats, themes);
   }
-
-  // Clause 2: trustworthiness — how the shortlist held up to feedback.
-  if (disliked.length === 0 && liked.length > 0) {
-    segments.push(plain(" Nothing drew pushback, "), emphasis("a strong signal"), plain(" this shortlist holds up."));
-  } else if (disliked.length > 0 && liked.length > disliked.length) {
-    segments.push(plain(" More approval than pushback here: it survived "), emphasis("real scrutiny"), plain(", not just a first look."));
-  } else if (disliked.length > 0) {
-    segments.push(plain(" You read this "), emphasis("critically"), plain(": what's left reflects genuine scrutiny, not a first impression."));
-  }
-
-  // Clause 3: churn — how much correcting it took along the way.
-  const steeringCount = stats.noteCount + stats.ownFramingCount;
-  if (steeringCount === 0 && (stats.pathCount > 0 || liked.length + disliked.length > 0)) {
-    segments.push(plain(" And it took "), emphasis("little correcting"), plain(" along the way."));
-  } else if (steeringCount > 0) {
-    segments.push(
-      plain(" You "),
-      emphasis("steered it directly"),
-      plain(steeringCount > 1 ? ", in your own words, more than once." : ", in your own words, at least once.")
-    );
-  }
-
-  return segments;
 }
 
 /**

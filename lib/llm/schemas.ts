@@ -161,3 +161,46 @@ export const RefinedOptionsSchema = z.object({
     .describe("Exactly 3 fresh framing options that reflect the user's note."),
 });
 export type RefinedOptions = z.infer<typeof RefinedOptionsSchema>;
+
+/**
+ * Report Section 1 (getUnderstoodSummary, Phase 3c). The model summarizes what
+ * the user came in with as ordered segments. `refIndex` is a 1-based index into
+ * the numbered needs list the model was given (null for ordinary prose); the
+ * client maps it back to a node id. No numbers here — this is plain summary text.
+ */
+export const UnderstoodSummarySchema = z.object({
+  segments: z
+    .array(
+      z.object({
+        content: z.string().describe("A span of the summary sentence."),
+        refIndex: z
+          .number()
+          .int()
+          .nullable()
+          .describe("1-based number of the need this span names, or null for ordinary prose."),
+      })
+    )
+    .min(1)
+    .max(12)
+    .describe("The 'what we understood' summary, split into ordered segments."),
+});
+export type UnderstoodSummaryResult = z.infer<typeof UnderstoodSummarySchema>;
+
+/**
+ * Report Section 2 (getSessionReadout, Phase 3c). The model interprets what the
+ * session's shape MEANS as ordered segments; `emphasis` marks the few most
+ * telling phrases (rendered font-medium).
+ */
+export const SessionReadoutSchema = z.object({
+  segments: z
+    .array(
+      z.object({
+        content: z.string().describe("A span of the reading paragraph."),
+        emphasis: z.boolean().describe("True for the few most telling phrases; false otherwise."),
+      })
+    )
+    .min(1)
+    .max(12)
+    .describe("The 'how we read your situation' paragraph, split into ordered segments."),
+});
+export type SessionReadoutResult = z.infer<typeof SessionReadoutSchema>;

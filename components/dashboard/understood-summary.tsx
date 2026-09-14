@@ -11,12 +11,14 @@ const SUMMARY_LOADING_STAGES = ["Reading what you wrote…", "Summarizing…"];
 
 export function UnderstoodSummary({
   needs,
+  vent,
   highlightedId,
   onEnter,
   onLeave,
   onToggle,
 }: {
   needs: DashboardNeed[];
+  vent: string;
   highlightedId: string | null;
   onEnter: (nodeId: string) => void;
   onLeave: () => void;
@@ -32,13 +34,13 @@ export function UnderstoodSummary({
 
   useEffect(() => {
     let cancelled = false;
-    getUnderstoodSummary(needs).then((result) => {
+    getUnderstoodSummary(needs, vent).then((result) => {
       if (!cancelled) setSegments(result);
     });
     return () => {
       cancelled = true;
     };
-  }, [needs]);
+  }, [needs, vent]);
 
   if (segments === null) {
     return (
@@ -56,7 +58,7 @@ export function UnderstoodSummary({
   const validIds = new Set(needs.map((n) => n.node.id));
 
   return (
-    <p className="text-sm text-foreground">
+    <p className="text-sm text-foreground" data-testid="understood-summary">
       {segments.map((seg, i) => {
         if (seg.type === "text" || !validIds.has(seg.nodeId)) {
           return <span key={i}>{seg.content}</span>;

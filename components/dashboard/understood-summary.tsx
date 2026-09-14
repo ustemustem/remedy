@@ -58,7 +58,7 @@ export function UnderstoodSummary({
   const validIds = new Set(needs.map((n) => n.node.id));
 
   return (
-    <p className="text-sm text-foreground">
+    <p className="text-sm text-foreground" data-testid="understood-summary">
       {segments.map((seg, i) => {
         if (seg.type === "text" || !validIds.has(seg.nodeId)) {
           return <span key={i}>{seg.content}</span>;

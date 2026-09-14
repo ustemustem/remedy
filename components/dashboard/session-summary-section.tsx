@@ -53,7 +53,7 @@ export function SessionSummarySection({
           className="text-sm text-muted-foreground"
         />
       ) : (
-        <p className="text-sm leading-[1.55] text-foreground">
+        <p className="text-sm leading-[1.55] text-foreground" data-testid="session-readout">
           {readout.map((seg, i) => (
             <span key={i} className={seg.emphasis ? "font-medium" : undefined}>
               {seg.content}

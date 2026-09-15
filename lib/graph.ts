@@ -1,4 +1,4 @@
-import type { CanvasNodeData, FeedbackContext, PeerOutcome, SessionStats, FitSignal } from "./types";
+import type { CanvasNodeData, FeedbackContext, PeerOutcome, SessionStats, FitSignal, EvidenceExample } from "./types";
 
 /** Ids of nodes that have since been revised — i.e. no longer the current version. */
 export function getSupersededIds(nodes: CanvasNodeData[]): Set<string> {
@@ -115,6 +115,8 @@ export interface DashboardNeed {
   peerOutcome?: PeerOutcome;
   /** Report fit signal (Phase 3a), attached by the report after the async call. */
   fit?: FitSignal;
+  /** Grounded evidence (Phase 3b), attached by the report after the async call. */
+  evidence?: EvidenceExample[];
 }
 
 /**

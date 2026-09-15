@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { deriveEvidenceComparison, type DashboardNeed } from "@/lib/graph";
 import { InfoTooltip } from "./info-tooltip";
 import { FitScore, FitBars } from "./fit-meter";
+import { EvidenceRow } from "./evidence-row";
 import { cn } from "@/lib/utils";
 
 const OUTCOME_TOOLTIP =
@@ -101,7 +102,13 @@ function EvidenceBar({
  * components. The hero is the larger size: a bigger match score, a full body,
  * and the evidence comparison the alternative cards don't carry.
  */
-export function PrescriptionCard({ need }: { need: DashboardNeed }) {
+export function PrescriptionCard({
+  need,
+  evidenceLoading,
+}: {
+  need: DashboardNeed;
+  evidenceLoading?: boolean;
+}) {
   const { node, peerOutcome } = need;
   const comparison = deriveEvidenceComparison(peerOutcome);
   const hasStatRow = Boolean(comparison) || node.retentionRate != null || Boolean(peerOutcome);
@@ -174,6 +181,13 @@ export function PrescriptionCard({ need }: { need: DashboardNeed }) {
           <div className="border-t border-border pt-3">
             <FitBars fit={need.fit} showNotes />
           </div>
+        )}
+
+        {need.evidence && need.evidence.length > 0 && <EvidenceRow examples={need.evidence} />}
+        {evidenceLoading && !need.evidence?.length && (
+          <p className="border-t border-border pt-3 text-[length:var(--text-label)] text-muted-foreground">
+            Finding evidence…
+          </p>
         )}
 
         {comparison && peerOutcome && (

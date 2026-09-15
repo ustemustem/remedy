@@ -25,6 +25,7 @@ import type {
   ReadoutSegment,
   SessionStats,
   FitSignal,
+  EvidenceExample,
 } from "./types";
 import type { DashboardNeed, ThemeEntry } from "./graph";
 import {
@@ -142,6 +143,34 @@ export async function getFitSignals(vent: string, needs: DashboardNeed[]): Promi
     return fits.map((f) => ({ ...f, score: computeCompositeFit(f.coverageScore, f.confidenceScore) }));
   } catch {
     return [];
+  }
+}
+
+/**
+ * Real getGroundedEvidence (Phase 3b) — POSTs the vent + recommendations to the
+ * ground route (web_search + extraction per need), returning cited evidence per
+ * need in order. On any error/offline returns [] per need so evidence is omitted
+ * (no fabricated fallback).
+ */
+export async function getGroundedEvidence(
+  vent: string,
+  needs: DashboardNeed[]
+): Promise<EvidenceExample[][]> {
+  if (needs.length === 0) return [];
+  try {
+    const res = await fetch("/api/report/ground", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        vent,
+        needs: needs.map((n) => ({ label: baseTitle(n.node), body: n.node.body })),
+      }),
+    });
+    if (!res.ok) throw new Error(`ground ${res.status}`);
+    const { evidence } = (await res.json()) as { evidence: EvidenceExample[][] };
+    return evidence;
+  } catch {
+    return needs.map(() => []);
   }
 }
 

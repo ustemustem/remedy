@@ -87,9 +87,10 @@ export interface ReadoutSegment {
 }
 
 export interface EvidenceExample {
-  kind: "linkedin" | "app" | "company";
+  kind: "app" | "community" | "role";
   label: string;
   detail: string;
+  url: string;
 }
 
 /** Report Section 3 fit signal (Phase 3a). Composite (0-100) = coverage of the

@@ -3,32 +3,27 @@
 import type { EvidenceExample } from "@/lib/types";
 
 const KIND_HEADING: Record<EvidenceExample["kind"], string> = {
-  linkedin: "Our recommendation",
-  app: "App suggestion",
-  company: "Company match",
+  app: "Tool",
+  community: "Discussion",
+  role: "Role search",
 };
-
-function narrativeFor(example: EvidenceExample): string {
-  return `${example.label} — ${example.detail}`;
-}
 
 export function EvidenceRow({ examples }: { examples: EvidenceExample[] }) {
   return (
     <div className="grid grid-cols-1 gap-3 border-t border-border pt-3 sm:grid-cols-3">
       {examples.map((example) => (
-        <div key={example.kind} className="space-y-1">
+        <div key={example.url} className="space-y-1">
           <p className="font-mono text-[length:var(--text-label)] font-bold uppercase tracking-wide text-muted-foreground">
             {KIND_HEADING[example.kind]}
           </p>
-          {example.kind === "linkedin" ? (
-            <p className="border-l-2 border-border pl-2 text-[length:var(--text-label)] italic text-muted-foreground">
-              &ldquo;{narrativeFor(example)}&rdquo;
-            </p>
-          ) : (
-            <p className="text-[length:var(--text-label)] text-muted-foreground">
-              {narrativeFor(example)}
-            </p>
-          )}
+          <a
+            href={example.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block text-[length:var(--text-label)] text-muted-foreground underline decoration-1 decoration-primary/40 underline-offset-2 hover:text-foreground hover:decoration-primary"
+          >
+            {example.label} — {example.detail}
+          </a>
         </div>
       ))}
     </div>

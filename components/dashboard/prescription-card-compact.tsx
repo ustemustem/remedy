@@ -12,10 +12,16 @@ import { deriveEvidenceComparison, type DashboardNeed } from "@/lib/graph";
 import { EvidenceRow } from "./evidence-row";
 import { FitScore, FitBars } from "./fit-meter";
 
-export function PrescriptionCardCompact({ need }: { need: DashboardNeed }) {
+export function PrescriptionCardCompact({
+  need,
+  evidenceLoading,
+}: {
+  need: DashboardNeed;
+  evidenceLoading?: boolean;
+}) {
   const { node, peerOutcome } = need;
   const comparison = deriveEvidenceComparison(peerOutcome);
-  const evidenceCount = (peerOutcome ? 1 : 0) + (node.evidenceExamples?.length ?? 0);
+  const evidence = need.evidence ?? [];
   const hasStatLine = Boolean(comparison) || node.retentionRate != null;
 
   return (
@@ -87,7 +93,9 @@ export function PrescriptionCardCompact({ need }: { need: DashboardNeed }) {
 
         {need.fit && <FitBars fit={need.fit} showNotes={false} />}
 
-        {evidenceCount > 0 && (
+        {evidenceLoading ? (
+          <p className="text-[length:var(--text-label)] text-muted-foreground">Finding evidence…</p>
+        ) : evidence.length > 0 ? (
           <Collapsible>
             <CollapsibleTrigger asChild>
               <button
@@ -95,19 +103,14 @@ export function PrescriptionCardCompact({ need }: { need: DashboardNeed }) {
                 className="group flex items-center gap-1 rounded-full border border-border px-3 py-1 font-mono text-[length:var(--text-label)] uppercase tracking-wide text-muted-foreground motion-safe:transition-transform hover:border-foreground/30 hover:text-foreground motion-safe:active:scale-[0.98]"
               >
                 <ChevronRight className="h-3 w-3 motion-safe:transition-transform group-data-[state=open]:rotate-90" />
-                View evidence &middot; {evidenceCount}
+                View evidence &middot; {evidence.length}
               </button>
             </CollapsibleTrigger>
             <CollapsibleContent className="space-y-2 pt-2">
-              {peerOutcome && (
-                <p className="text-[length:var(--text-label)] text-muted-foreground">
-                  {peerOutcome.cohortDefinition}
-                </p>
-              )}
-              {node.evidenceExamples && <EvidenceRow examples={node.evidenceExamples} />}
+              <EvidenceRow examples={evidence} />
             </CollapsibleContent>
           </Collapsible>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   );

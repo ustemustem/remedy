@@ -12,6 +12,7 @@ const SUMMARY_LOADING_STAGES = ["Reading what you wrote…", "Summarizing…"];
 export function UnderstoodSummary({
   needs,
   vent,
+  preloaded,
   highlightedId,
   onEnter,
   onLeave,
@@ -19,28 +20,33 @@ export function UnderstoodSummary({
 }: {
   needs: DashboardNeed[];
   vent: string;
+  /** Pre-loaded by generateReport behind the loader (Phase 3d); when present the
+   *  component skips its own fetch. Absent on the session-resume path. */
+  preloaded?: SummarySegment[];
   highlightedId: string | null;
   onEnter: (nodeId: string) => void;
   onLeave: () => void;
   onToggle: (nodeId: string) => void;
 }) {
-  const [segments, setSegments] = useState<SummarySegment[] | null>(null);
+  const [fetched, setFetched] = useState<SummarySegment[] | null>(null);
+  const segments = preloaded ?? fetched;
   const [trackedNeeds, setTrackedNeeds] = useState(needs);
 
-  if (needs !== trackedNeeds) {
+  if (!preloaded && needs !== trackedNeeds) {
     setTrackedNeeds(needs);
-    setSegments(null);
+    setFetched(null);
   }
 
   useEffect(() => {
+    if (preloaded) return;
     let cancelled = false;
     getUnderstoodSummary(needs, vent).then((result) => {
-      if (!cancelled) setSegments(result);
+      if (!cancelled) setFetched(result);
     });
     return () => {
       cancelled = true;
     };
-  }, [needs, vent]);
+  }, [needs, vent, preloaded]);
 
   if (segments === null) {
     return (

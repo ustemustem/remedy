@@ -11,7 +11,7 @@ import type { SourceStyle } from "@/components/canvas/source-style-context";
 import { getInitialCanvas } from "@/lib/mockAI";
 import { createSession, loadSessions, updateSession, type SessionRecord } from "@/lib/sessions";
 import { loadingCycleMs, withMinDuration } from "@/lib/timing";
-import type { CanvasGraph, Step } from "@/lib/types";
+import type { CanvasGraph, ReportData, Step } from "@/lib/types";
 
 const EMPTY_GRAPH: CanvasGraph = { nodes: [], edges: [] };
 
@@ -28,6 +28,10 @@ export default function Home() {
   // be saved mid-transition. `step` stays "canvas" until the loader's
   // onReady fires, at which point it flips straight to "dashboard".
   const [transitioning, setTransitioning] = useState(false);
+  // The fast report seams, orchestrated by generateReport behind the loader
+  // (Phase 3d) and handed to DashboardScreen so the report renders without
+  // re-fetching. Null on the session-resume path — the report self-fetches then.
+  const [reportData, setReportData] = useState<ReportData | null>(null);
 
   // Sessions live in localStorage — only readable after mount.
   useEffect(() => {
@@ -139,6 +143,7 @@ export default function Home() {
     // Session persistence isn't gated on the loading transition — only the
     // visual step change waits for ReportLoader's onReady.
     setGraph(finalGraph);
+    setReportData(null); // fresh run; the loader fills this on onReady
     setTransitioning(true);
     if (!sessionId) return;
     const updated = updateSession(sessionId, finalGraph, "dashboard");
@@ -147,12 +152,14 @@ export default function Home() {
     }
   }
 
-  function handleReportReady() {
+  function handleReportReady(data: ReportData) {
+    setReportData(data);
     setTransitioning(false);
     setStep("dashboard");
   }
 
   function handleBackToCanvas() {
+    setReportData(null);
     setStep("canvas");
   }
 
@@ -160,6 +167,7 @@ export default function Home() {
     setGraph(EMPTY_GRAPH);
     setSessionId(null);
     setError(null);
+    setReportData(null);
     setTransitioning(false);
     setStep("chat");
   }
@@ -167,13 +175,14 @@ export default function Home() {
   function handleSelectSession(session: SessionRecord) {
     setSessionId(session.id);
     setGraph(session.graph);
+    setReportData(null); // resumed session → the report self-fetches its sections
     setTransitioning(false);
     setStep(session.step === "chat" ? "chat" : session.step);
     setError(null);
   }
 
   const content = transitioning ? (
-      <ReportLoader onReady={handleReportReady} />
+      <ReportLoader graph={graph} onReady={handleReportReady} />
     ) : step === "canvas" ? (
       <CanvasScreen
         key={sessionId ?? "new"}
@@ -188,6 +197,7 @@ export default function Home() {
       <DashboardScreen
         graph={graph}
         sessionId={sessionId}
+        reportData={reportData}
         onBackToCanvas={handleBackToCanvas}
         onReset={handleReset}
       />

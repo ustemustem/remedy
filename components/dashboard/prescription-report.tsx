@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { deriveDashboardFeed, deriveDashboardNeeds, deriveThemeEntries } from "@/lib/graph";
 import { getFitSignals, getGroundedEvidence } from "@/lib/mockAI";
-import type { CanvasNodeData, FitSignal, EvidenceExample } from "@/lib/types";
+import type { CanvasNodeData, FitSignal, EvidenceExample, ReportData } from "@/lib/types";
 import AITextLoading from "@/components/kokonutui/ai-text-loading";
 import { SessionSummarySection } from "./session-summary-section";
 import { UnderstoodSummary } from "./understood-summary";
@@ -62,7 +62,13 @@ function ReportSection({
   );
 }
 
-export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
+export function PrescriptionReport({
+  nodes,
+  preloaded,
+}: {
+  nodes: CanvasNodeData[];
+  preloaded?: ReportData | null;
+}) {
   // Memoized on `nodes` specifically: deriveDashboardNeeds/deriveThemeEntries
   // build fresh arrays every call, and PrescriptionReport re-renders on every
   // hover/focus during Section 1's ref<->row highlight below. Without this,
@@ -79,13 +85,14 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
   // Fit signal (Phase 3a): one batched call scores every need; the cards section
   // waits for it, then ranks by fit. On failure getFitSignals returns [] so fit
   // is omitted (no fabricated number) and the order falls back to stable.
-  const [fits, setFits] = useState<FitSignal[] | null>(null);
+  const [fits, setFits] = useState<FitSignal[] | null>(preloaded?.fits ?? null);
   const [trackedForFit, setTrackedForFit] = useState(needs);
-  if (needs !== trackedForFit) {
+  if (!preloaded && needs !== trackedForFit) {
     setTrackedForFit(needs);
     setFits(null);
   }
   useEffect(() => {
+    if (preloaded) return; // fits came pre-loaded from generateReport (Phase 3d)
     let cancelled = false;
     getFitSignals(vent, needs).then((r) => {
       if (!cancelled) setFits(r);
@@ -93,7 +100,7 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
     return () => {
       cancelled = true;
     };
-  }, [needs, vent]);
+  }, [needs, vent, preloaded]);
   // Grounded evidence (Phase 3b): one call per need, in parallel with fit. Loads
   // per-card (non-gating) since web_search is slow; omitted on failure.
   const [evidence, setEvidence] = useState<EvidenceExample[][] | null>(null);
@@ -171,6 +178,7 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
             <UnderstoodSummary
               needs={needs}
               vent={vent}
+              preloaded={preloaded?.summary}
               highlightedId={highlightedId}
               onEnter={handleEnter}
               onLeave={handleLeave}
@@ -239,7 +247,12 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
             <SectionHead title="How we read your situation" />
             <Card className="report-card-surface">
               <CardContent className="px-[var(--card-px)] py-4">
-                <SessionSummarySection nodes={nodes} themes={themes} variant="rail" />
+                <SessionSummarySection
+                  nodes={nodes}
+                  themes={themes}
+                  preloaded={preloaded?.readout}
+                  variant="rail"
+                />
               </CardContent>
             </Card>
           </div>

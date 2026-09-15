@@ -13,35 +13,41 @@ const READOUT_LOADING_STAGES = ["Reading your session…", "Summarizing…"];
 export function SessionSummarySection({
   nodes,
   themes,
+  preloaded,
   variant = "row",
 }: {
   nodes: CanvasNodeData[];
   themes: ThemeEntry[];
+  /** Pre-loaded by generateReport behind the loader (Phase 3d); when present the
+   *  component skips its own fetch. Absent on the session-resume path. */
+  preloaded?: ReadoutSegment[];
   /** "rail" is the narrow session rail in report layout A; "row" is the
    *  full-width card the report falls back to on narrow viewports. */
   variant?: "row" | "rail";
 }) {
   const stats = useMemo(() => deriveSessionStats(nodes), [nodes]);
-  const [readout, setReadout] = useState<ReadoutSegment[] | null>(null);
+  const [fetched, setFetched] = useState<ReadoutSegment[] | null>(null);
+  const readout = preloaded ?? fetched;
 
   // Reset to the loading state during render when the session changes (both
   // `stats` and `themes` derive from `nodes`), rather than calling setState
   // inside the effect — mirrors UnderstoodSummary's tracked-prop pattern.
   const [trackedNodes, setTrackedNodes] = useState(nodes);
-  if (nodes !== trackedNodes) {
+  if (!preloaded && nodes !== trackedNodes) {
     setTrackedNodes(nodes);
-    setReadout(null);
+    setFetched(null);
   }
 
   useEffect(() => {
+    if (preloaded) return;
     let cancelled = false;
     getSessionReadout(stats, themes).then((result) => {
-      if (!cancelled) setReadout(result);
+      if (!cancelled) setFetched(result);
     });
     return () => {
       cancelled = true;
     };
-  }, [stats, themes]);
+  }, [stats, themes, preloaded]);
 
   return (
     <div className="space-y-4">

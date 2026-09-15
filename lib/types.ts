@@ -94,6 +94,15 @@ export interface FitSignal {
   confidenceNote: string;
 }
 
+/** The fast report seams, orchestrated by generateReport (Phase 3d) behind the
+ *  loader and passed into the report so it renders without re-fetching. Grounded
+ *  evidence is NOT here — it loads progressively per card (web_search is slow). */
+export interface ReportData {
+  summary: SummarySegment[];
+  readout: ReadoutSegment[];
+  fits: FitSignal[];
+}
+
 export interface CanvasNodeData {
   id: string;
   kind: NodeKind;

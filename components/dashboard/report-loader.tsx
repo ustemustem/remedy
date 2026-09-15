@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useReducedMotion } from "motion/react";
 import { generateReport } from "@/lib/mockAI";
 import { withMinDuration } from "@/lib/timing";
+import type { CanvasGraph, ReportData } from "@/lib/types";
 
 // Canvas -> report loading transition (see animation-handoff.md). The mark
 // SVG is public/logo-icon.svg's stroke + dot, redrawn inline so its two
@@ -77,13 +78,20 @@ type Phase = "draw" | "working" | "exit" | "error";
  * animations, so `animationend` never fires there — that path keeps a short
  * fallback timer.
  */
-export function ReportLoader({ onReady }: { onReady: () => void }) {
+export function ReportLoader({
+  graph,
+  onReady,
+}: {
+  graph: CanvasGraph;
+  onReady: (data: ReportData) => void;
+}) {
   const [phase, setPhase] = useState<Phase>("draw");
   const [statusIndex, setStatusIndex] = useState(0);
   const reducedMotion = useReducedMotion();
   const attemptRef = useRef(0);
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const finishedRef = useRef(false);
+  const dataRef = useRef<ReportData | null>(null);
 
   const clearTimers = useCallback(() => {
     timersRef.current.forEach(clearTimeout);
@@ -91,9 +99,9 @@ export function ReportLoader({ onReady }: { onReady: () => void }) {
   }, []);
 
   const finish = useCallback(() => {
-    if (finishedRef.current) return;
+    if (finishedRef.current || !dataRef.current) return;
     finishedRef.current = true;
-    onReady();
+    onReady(dataRef.current);
   }, [onReady]);
 
   /** draw -> working, idempotent: whichever of the dot's animationend or the
@@ -122,11 +130,12 @@ export function ReportLoader({ onReady }: { onReady: () => void }) {
     timersRef.current.push(t1, t2);
 
     withMinDuration(
-      Promise.race([generateReport(), timeoutAfter(CEILING_MS, timersRef.current)]),
+      Promise.race([generateReport(graph), timeoutAfter(CEILING_MS, timersRef.current)]),
       MIN_VISIBLE_MS
     )
-      .then(() => {
+      .then((data) => {
         if (attemptRef.current !== attempt) return;
+        dataRef.current = data;
         setPhase("exit");
         // Same belt and braces on the way out. finish() is guarded by
         // finishedRef, so the erase animation's animationend and this timer
@@ -145,7 +154,7 @@ export function ReportLoader({ onReady }: { onReady: () => void }) {
         if (attemptRef.current !== attempt) return;
         setPhase("error");
       });
-  }, [clearTimers, enterWorking, finish, reducedMotion]);
+  }, [clearTimers, enterWorking, finish, reducedMotion, graph]);
 
   useEffect(() => {
     beginAttempt();

@@ -26,8 +26,10 @@ import type {
   SessionStats,
   FitSignal,
   EvidenceExample,
+  ReportData,
 } from "./types";
 import type { DashboardNeed, ThemeEntry } from "./graph";
+import { deriveDashboardNeeds, deriveThemeEntries, deriveSessionStats } from "./graph";
 import {
   mapSummarySegments,
   mapReadoutSegments,
@@ -36,22 +38,25 @@ import {
   computeCompositeFit,
 } from "./report-segments";
 
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 /**
- * Fake async: the canvas -> report loading transition's own promise (see
- * animation handoff). This represents the overall "generating your
- * prescription" work the loader animation is timed against, not a proxy for
- * any one section's fetch. Owner-confirmed real generation time is ~2.5-4s.
+ * Real generateReport (Phase 3d) — orchestrates the fast report seams behind the
+ * loader (summary + readout + fit, in parallel) and returns them so the report
+ * renders fully-loaded without re-fetching. Grounded evidence is deliberately
+ * left out: it is slow (web_search) and loads progressively per card. The
+ * ReportLoader awaits this promise (with its own MIN_VISIBLE_MS floor +
+ * CEILING_MS timeout race), so its stages now track real work, not a fake timer.
  */
-function reportGenerationDelay() {
-  return sleep(2500 + Math.random() * 1500);
-}
-
-export async function generateReport(): Promise<void> {
-  await reportGenerationDelay();
+export async function generateReport(graph: CanvasGraph): Promise<ReportData> {
+  const needs = deriveDashboardNeeds(graph.nodes);
+  const themes = deriveThemeEntries(graph.nodes);
+  const stats = deriveSessionStats(graph.nodes);
+  const vent = graph.nodes.find((n) => n.kind === "source")?.body ?? "";
+  const [summary, readout, fits] = await Promise.all([
+    getUnderstoodSummary(needs, vent),
+    getSessionReadout(stats, themes),
+    getFitSignals(vent, needs),
+  ]);
+  return { summary, readout, fits };
 }
 
 function id(prefix: string) {

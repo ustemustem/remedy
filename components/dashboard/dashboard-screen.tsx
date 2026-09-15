@@ -6,17 +6,21 @@ import { Button } from "@/components/ui/button";
 import { deriveDashboardNeeds } from "@/lib/graph";
 import { PrescriptionReport } from "./prescription-report";
 import { ExitPoll } from "./exit-poll";
-import type { CanvasGraph } from "@/lib/types";
+import type { CanvasGraph, ReportData } from "@/lib/types";
 
 export function DashboardScreen({
   graph,
   sessionId,
+  reportData,
   onBackToCanvas,
   onReset,
 }: {
   graph: CanvasGraph;
   /** The real session id — becomes the letterhead REF / footer control number. */
   sessionId?: string | null;
+  /** Fast report seams pre-loaded behind the loader (Phase 3d). Null on the
+   *  session-resume path, where the report self-fetches its sections. */
+  reportData?: ReportData | null;
   /** Returns to the canvas without resetting — the graph is untouched by Finalize. */
   onBackToCanvas: () => void;
   onReset: () => void;
@@ -93,7 +97,7 @@ export function DashboardScreen({
 
             {/* Report body. */}
             <div className="px-4 py-5 sm:px-8 sm:py-7">
-              <PrescriptionReport nodes={graph.nodes} />
+              <PrescriptionReport nodes={graph.nodes} preloaded={reportData} />
             </div>
 
             {/* Verification stamp — an honest control number from the real REF. */}

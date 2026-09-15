@@ -8,7 +8,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { deriveEvidenceComparison, type DashboardNeed } from "@/lib/graph";
+import type { DashboardNeed } from "@/lib/graph";
 import { EvidenceRow } from "./evidence-row";
 import { FitScore, FitBars } from "./fit-meter";
 
@@ -19,10 +19,8 @@ export function PrescriptionCardCompact({
   need: DashboardNeed;
   evidenceLoading?: boolean;
 }) {
-  const { node, peerOutcome } = need;
-  const comparison = deriveEvidenceComparison(peerOutcome);
+  const { node } = need;
   const evidence = need.evidence ?? [];
-  const hasStatLine = Boolean(comparison) || node.retentionRate != null;
 
   return (
     <Card className="report-card-surface py-4">
@@ -50,44 +48,6 @@ export function PrescriptionCardCompact({
             <p className="line-clamp-1 text-[length:var(--text-label)] text-muted-foreground">
               {node.body}
             </p>
-            {/* Same stat row as the hero card: every figure at one size, role
-                carried by colour. "n=142" was statistical notation on a screen
-                read by HR and procurement people, and it was the only figure in
-                the row without a unit word after it — "based on 142 teams" fixes
-                both. */}
-            {hasStatLine && (
-              <p className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-[length:var(--text-label)]">
-                {comparison && (
-                  <>
-                    <span className="font-mono text-[length:var(--text-label)] font-bold text-primary">
-                      +{comparison.deltaPts}%
-                    </span>
-                    <span className="text-muted-foreground">faster work</span>
-                  </>
-                )}
-                {node.retentionRate != null && (
-                  <>
-                    {comparison && <span className="text-border">&middot;</span>}
-                    <span className="font-mono text-[length:var(--text-label)] font-bold text-foreground">
-                      {node.retentionRate}%
-                    </span>
-                    <span className="text-muted-foreground">retention</span>
-                  </>
-                )}
-                {peerOutcome && (
-                  <>
-                    {(comparison || node.retentionRate != null) && (
-                      <span className="text-border">&middot;</span>
-                    )}
-                    <span className="text-muted-foreground">based on</span>
-                    <span className="font-mono text-[length:var(--text-label)] font-bold text-muted-foreground">
-                      {peerOutcome.cohortSize}
-                    </span>
-                    <span className="text-muted-foreground">teams</span>
-                  </>
-                )}
-              </p>
-            )}
           </div>
         </div>
 

@@ -7,13 +7,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm run dev      # start dev server (Turbopack) on http://localhost:3000
-npm run build    # production build
-npm run lint     # eslint (flat config, eslint-config-next)
-npx tsc --noEmit # type-check only — run this + lint after every change, no test suite exists
+npm run dev       # start dev server (Turbopack) on http://localhost:3000
+npm run build     # production build
+npm run lint      # eslint (flat config, eslint-config-next)
+npx tsc --noEmit  # type-check only — run this + lint after every change
+npm test          # vitest run (unit: lib/**/*.test.ts + eval checks: evals/**/*.test.ts)
+npm run test:e2e  # Playwright E2E; starts the dev server itself with LLM_MOCK=1
 ```
 
-There is no test framework configured. Verification is `tsc --noEmit` + `npm run lint` + manual browser check of the affected flow.
+Verification is `tsc --noEmit` + `npm run lint` + `npm test` (vitest), plus a manual
+browser check of the affected flow. Vitest covers pure logic and the eval checks; Playwright
+(`npm run test:e2e`) drives the chat → canvas → report critical path under `LLM_MOCK=1`
+(deterministic, free — no key, no cost). **Split by runner:** E2E specs live in `e2e/` as
+`*.spec.ts`; vitest owns `*.test.ts` under `lib/` and `evals/` (its `include` globs), so the
+two never overlap. Coverage is deliberately thin — a few pure-logic unit tests and one
+focused E2E critical path — not exhaustive; most flows are still verified in the browser.
 
 If a change touches CSS custom properties (`app/globals.css`) or anything the Turbopack dev
 cache seems to be ignoring, `rm -rf .next` before restarting the dev server — new `@theme`

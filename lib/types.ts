@@ -48,17 +48,6 @@ export interface HighlightSpan {
   secondaryTags?: string[];
 }
 
-export interface PeerOutcome {
-  cohortSize: number;
-  cohortDefinition: string;
-  bars: number[]; // relative bar heights, 0-100
-}
-
-export interface MatchFactor {
-  label: string;
-  weight: number; // 0-100
-}
-
 export interface SessionStats {
   likeCount: number;
   dislikeCount: number;
@@ -177,15 +166,8 @@ export interface CanvasNodeData {
   groupId?: string;
   /** display label for the branch-framing prototype's group frame */
   groupLabel?: string;
-  /** dashboard-only fields, present on recommendation/counter-argument/revision nodes */
-  matchScore?: number;
-  retentionRate?: number;
-  peerOutcome?: PeerOutcome;
+  /** paid-placement flag — a sponsored need never takes the hero slot. */
   transparency?: "organic" | "sponsored";
-  matchFactors?: MatchFactor[];
-  /** Mock LinkedIn/app/company proof points for "Why this should work" —
-   *  illustrative only, see lib/mockAI.ts's mockEvidenceExamples(). */
-  evidenceExamples?: EvidenceExample[];
 }
 
 export interface CanvasEdgeData {

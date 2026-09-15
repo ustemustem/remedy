@@ -1,4 +1,4 @@
-import type { CanvasNodeData, FeedbackContext, PeerOutcome, SessionStats, FitSignal, EvidenceExample } from "./types";
+import type { CanvasNodeData, FeedbackContext, SessionStats, FitSignal, EvidenceExample } from "./types";
 
 /** Ids of nodes that have since been revised — i.e. no longer the current version. */
 export function getSupersededIds(nodes: CanvasNodeData[]): Set<string> {
@@ -112,7 +112,6 @@ export interface DashboardNeed {
   revisionCount: number;
   /** The sibling counter-argument this need's path won out over, if any. */
   eliminated?: CanvasNodeData;
-  peerOutcome?: PeerOutcome;
   /** Report fit signal (Phase 3a), attached by the report after the async call. */
   fit?: FitSignal;
   /** Grounded evidence (Phase 3b), attached by the report after the async call. */
@@ -146,13 +145,12 @@ export function deriveDashboardNeeds(nodes: CanvasNodeData[]): DashboardNeed[] {
       quote,
       revisionCount: (node.activeRevision ?? node.version ?? 1) - 1,
       eliminated,
-      peerOutcome: node.peerOutcome,
     };
   });
 }
 
 /**
- * Report Section 3's hero/support/hidden ranking. Sorted by matchScore
+ * Report Section 3's hero/support/hidden ranking. Sorted by fit score
  * descending (a missing score sorts last, never first). The first
  * non-sponsored item is always the hero — a paid placement never takes the
  * top slot, whatever its score. If every need is sponsored, there is no
@@ -165,7 +163,7 @@ export function deriveDashboardNeeds(nodes: CanvasNodeData[]): DashboardNeed[] {
  * revisions/continuations deep" (see CanvasNodeData.groupId) — a selected
  * node AND its own "Prefer this option" continuation both selected would
  * otherwise rank as two near-identical cards (same framing, different
- * matchScore). Only the hero's own chain is deduped; two DIFFERENT chains
+ * fit score). Only the hero's own chain is deduped; two DIFFERENT chains
  * that happen to look similar are left alone, since there's no rule today
  * for detecting content similarity across genuinely different chains.
  */
@@ -193,35 +191,6 @@ export function deriveDashboardFeed(needs: DashboardNeed[]): DashboardFeed {
   };
 }
 
-/** Section 3's "teams like you vs typical team" evidence comparison. */
-export interface EvidenceComparison {
-  you: number;
-  typical: number;
-  deltaPts: number;
-}
-
-/**
- * PeerOutcome doesn't carry an explicit "your segment" vs "typical team"
- * split yet (see Section 3 handoff open question 1) — real per-segment
- * values are expected once the planned LLM sourcing work lands and can
- * export whatever comparison fields it needs at that point. Until then
- * this is a documented mock rule, not a real derivation: the last bar
- * stands in for "your segment", the average of the rest for "typical
- * team". `PeerOutcome`'s shape is intentionally left alone rather than
- * growing new fields for a mock that's about to be replaced.
- */
-export function deriveEvidenceComparison(peerOutcome?: PeerOutcome): EvidenceComparison | null {
-  if (!peerOutcome || peerOutcome.bars.length === 0) return null;
-  const bars = peerOutcome.bars;
-  const you = bars[bars.length - 1];
-  const rest = bars.slice(0, -1);
-  const typical = rest.length > 0 ? rest.reduce((a, b) => a + b, 0) / rest.length : you;
-  return {
-    you: Math.round(you),
-    typical: Math.round(typical),
-    deltaPts: Math.round(you - typical),
-  };
-}
 
 /**
  * Behavioral KPI counts for the reporting screen — every field counts an

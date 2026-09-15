@@ -51,6 +51,17 @@ export function mapReadoutSegments(raw: RawReadoutSegment[]): ReadoutSegment[] {
   }));
 }
 
+function clampScore(n: number): number {
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+/** The composite fit number (Phase 3a): a locked 50/50 blend of the two parts,
+ *  computed in code so the headline number always equals its two bars. */
+export function computeCompositeFit(coverageScore: number, confidenceScore: number): number {
+  return Math.round((clampScore(coverageScore) + clampScore(confidenceScore)) / 2);
+}
+
 function refFor(n: DashboardNeed): SummarySegment {
   return {
     type: "ref",

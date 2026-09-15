@@ -24,6 +24,7 @@ import type {
   SummarySegment,
   ReadoutSegment,
   SessionStats,
+  FitSignal,
 } from "./types";
 import type { DashboardNeed, ThemeEntry } from "./graph";
 import {
@@ -31,6 +32,7 @@ import {
   mapReadoutSegments,
   fallbackUnderstoodSummary,
   fallbackSessionReadout,
+  computeCompositeFit,
 } from "./report-segments";
 
 function sleep(ms: number) {
@@ -115,6 +117,31 @@ export async function getSessionReadout(
     return mapReadoutSegments(segments);
   } catch {
     return fallbackSessionReadout(stats, themes);
+  }
+}
+
+/**
+ * Real getFitSignals (Phase 3a) — POSTs the vent + kept recommendations to the
+ * report route (Sonnet), returning one FitSignal per need in order. The
+ * composite is computed in code (50/50). On any error/offline returns [] so the
+ * report omits fit rather than showing a fabricated number.
+ */
+export async function getFitSignals(vent: string, needs: DashboardNeed[]): Promise<FitSignal[]> {
+  if (needs.length === 0) return [];
+  try {
+    const res = await fetch("/api/report/fit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        vent,
+        needs: needs.map((n) => ({ label: baseTitle(n.node), body: n.node.body })),
+      }),
+    });
+    if (!res.ok) throw new Error(`fit ${res.status}`);
+    const { fits } = (await res.json()) as { fits: Omit<FitSignal, "score">[] };
+    return fits.map((f) => ({ ...f, score: computeCompositeFit(f.coverageScore, f.confidenceScore) }));
+  } catch {
+    return [];
   }
 }
 

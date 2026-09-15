@@ -1,9 +1,14 @@
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { getClient, MODELS, isLlmMock } from "./client";
-import { understoodSummarySystemPrompt, sessionReadoutSystemPrompt, type Locale } from "./prompts";
-import { UnderstoodSummarySchema, SessionReadoutSchema } from "./schemas";
+import {
+  understoodSummarySystemPrompt,
+  sessionReadoutSystemPrompt,
+  fitSignalSystemPrompt,
+  type Locale,
+} from "./prompts";
+import { UnderstoodSummarySchema, SessionReadoutSchema, FitSignalSchema } from "./schemas";
 import type { Usage } from "./telemetry";
-import type { SessionStats } from "../types";
+import type { SessionStats, FitSignal } from "../types";
 import {
   fallbackUnderstoodSummary,
   fallbackSessionReadout,
@@ -100,4 +105,45 @@ export async function readSessionReadout(
     throw new Error("Model did not return a parseable readout.");
   }
   return { result: msg.parsed_output.segments, usage: msg.usage };
+}
+
+export interface FitNeedInput {
+  label: string;
+  body: string;
+}
+
+/** getFitSignals — batched Sonnet call scoring every kept recommendation's fit.
+ *  Returns raw parts (no composite); the client computes the composite. */
+export async function readFitSignals(
+  input: { vent: string; needs: FitNeedInput[] },
+  locale: Locale
+): Promise<{ result: Omit<FitSignal, "score">[]; usage: Usage }> {
+  if (isLlmMock()) {
+    await new Promise((r) => setTimeout(r, 600));
+    const result = input.needs.map((_, i) => ({
+      coverageScore: 90 - (i % 3) * 15,
+      coverageNote: "Covers most of what you raised. (mock)",
+      confidenceScore: 70 + (i % 4) * 8,
+      confidenceNote: "Reasonably confident given the input. (mock)",
+    }));
+    return { result, usage: {} };
+  }
+
+  const client = getClient();
+  const numbered = input.needs.map((n, i) => `${i + 1}. ${n.label} — ${n.body}`).join("\n");
+  const userContent =
+    `The user's original message:\n"${input.vent}"\n\n` +
+    `The recommendations to score (numbered):\n${numbered}`;
+
+  const msg = await client.messages.parse({
+    model: MODELS.reasoning,
+    max_tokens: 1024,
+    system: fitSignalSystemPrompt(locale),
+    output_config: { format: zodOutputFormat(FitSignalSchema) },
+    messages: [{ role: "user", content: userContent }],
+  });
+  if (!msg.parsed_output) {
+    throw new Error("Model did not return parseable fit signals.");
+  }
+  return { result: msg.parsed_output.fits, usage: msg.usage };
 }

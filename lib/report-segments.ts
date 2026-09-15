@@ -2,7 +2,7 @@
 // (lib/mockAI.ts) and the server reader's mock branch (lib/llm/report.ts):
 // the index->segment mappers for real model output, plus the deterministic
 // templates that serve as the error/offline fallback.
-import type { SummarySegment, ReadoutSegment, SessionStats } from "./types";
+import type { SummarySegment, ReadoutSegment, SessionStats, EvidenceExample } from "./types";
 import type { DashboardNeed, ThemeEntry } from "./graph";
 
 /** One segment as the model returns it for the "what we understood" summary:
@@ -60,6 +60,27 @@ function clampScore(n: number): number {
  *  computed in code so the headline number always equals its two bars. */
 export function computeCompositeFit(coverageScore: number, confidenceScore: number): number {
   return Math.round((clampScore(coverageScore) + clampScore(confidenceScore)) / 2);
+}
+
+/** Keep only evidence whose url is one web_search actually returned (citation-
+ *  exists), dedup by url, cap at `max`. The guarantee the model cannot invent a
+ *  link: allowedUrls comes from the real web_search_tool_result blocks. */
+export function filterGroundedEvidence(
+  items: EvidenceExample[],
+  allowedUrls: string[],
+  max = 3
+): EvidenceExample[] {
+  const allowed = new Set(allowedUrls);
+  const seen = new Set<string>();
+  const out: EvidenceExample[] = [];
+  for (const it of items) {
+    const url = typeof it.url === "string" ? it.url.trim() : "";
+    if (!url || !allowed.has(url) || seen.has(url)) continue;
+    seen.add(url);
+    out.push({ ...it, url });
+    if (out.length >= max) break;
+  }
+  return out;
 }
 
 function refFor(n: DashboardNeed): SummarySegment {

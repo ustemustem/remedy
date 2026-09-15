@@ -1,17 +1,26 @@
+import type Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { getClient, MODELS, isLlmMock } from "./client";
+import { getClient, MODELS, isLlmMock, WEB_SEARCH_TOOL_TYPE } from "./client";
 import {
   understoodSummarySystemPrompt,
   sessionReadoutSystemPrompt,
   fitSignalSystemPrompt,
+  groundingSearchSystemPrompt,
+  groundingExtractSystemPrompt,
   type Locale,
 } from "./prompts";
-import { UnderstoodSummarySchema, SessionReadoutSchema, FitSignalSchema } from "./schemas";
+import {
+  UnderstoodSummarySchema,
+  SessionReadoutSchema,
+  FitSignalSchema,
+  GroundedEvidenceSchema,
+} from "./schemas";
 import type { Usage } from "./telemetry";
-import type { SessionStats, FitSignal } from "../types";
+import type { SessionStats, FitSignal, EvidenceExample } from "../types";
 import {
   fallbackUnderstoodSummary,
   fallbackSessionReadout,
+  filterGroundedEvidence,
   type RawSummarySegment,
   type RawReadoutSegment,
 } from "../report-segments";
@@ -146,4 +155,94 @@ export async function readFitSignals(
     throw new Error("Model did not return parseable fit signals.");
   }
   return { result: msg.parsed_output.fits, usage: msg.usage };
+}
+
+function extractText(content: Anthropic.ContentBlock[]): string {
+  return content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("");
+}
+
+/** Pull cited URLs out of web_search_tool_result blocks, defensively — the exact
+ *  result-block shape is version-specific, so check at runtime. */
+function extractCitations(content: Anthropic.ContentBlock[]): string[] {
+  const urls: string[] = [];
+  for (const block of content) {
+    const b = block as unknown as { type: string; content?: unknown };
+    if (b.type === "web_search_tool_result" && Array.isArray(b.content)) {
+      for (const r of b.content) {
+        const rr = r as { url?: string };
+        if (typeof rr.url === "string") urls.push(rr.url);
+      }
+    }
+  }
+  return urls;
+}
+
+export interface GroundNeedInput {
+  label: string;
+  body: string;
+}
+
+/** groundRecommendations for ONE recommendation (Phase 3b): web_search ->
+ *  structured extraction constrained to the real URLs -> code citation-exists +
+ *  dedup. Returns [] on an honest gap (no citations). */
+export async function readGroundedEvidenceForOne(
+  input: { vent: string; recommendation: GroundNeedInput },
+  locale: Locale
+): Promise<{ result: EvidenceExample[]; usage: Usage }> {
+  if (isLlmMock()) {
+    await new Promise((r) => setTimeout(r, 700));
+    const slug = encodeURIComponent(
+      input.recommendation.label.toLowerCase().replace(/\s+/g, "-").slice(0, 40)
+    );
+    const result: EvidenceExample[] = [
+      { kind: "app", label: "A fitting tool", detail: "A tool that helps enact this. (mock)", url: `https://example.com/tool/${slug}` },
+      { kind: "community", label: "Practitioner thread", detail: "Others who tried this discuss how. (mock)", url: `https://example.com/discussion/${slug}` },
+    ];
+    return { result, usage: {} };
+  }
+
+  const client = getClient();
+
+  // 1) web_search — real sources + cited URLs.
+  const search = await client.messages.create({
+    model: MODELS.reasoning,
+    max_tokens: 1024,
+    system: groundingSearchSystemPrompt(locale),
+    tools: [{ type: WEB_SEARCH_TOOL_TYPE, name: "web_search", max_uses: 3 }],
+    messages: [
+      {
+        role: "user",
+        content:
+          `The user's situation:\n"${input.vent}"\n\n` +
+          `The recommendation to support:\n${input.recommendation.label} — ${input.recommendation.body}`,
+      },
+    ],
+  });
+  const searchText = extractText(search.content);
+  const allowedUrls = extractCitations(search.content);
+  if (allowedUrls.length === 0) {
+    return { result: [], usage: search.usage };
+  }
+
+  // 2) structured extraction, constrained to the real URLs.
+  const extract = await client.messages.parse({
+    model: MODELS.cheap,
+    max_tokens: 768,
+    system: groundingExtractSystemPrompt(locale),
+    output_config: { format: zodOutputFormat(GroundedEvidenceSchema) },
+    messages: [
+      {
+        role: "user",
+        content:
+          `Recommendation:\n${input.recommendation.label} — ${input.recommendation.body}\n\n` +
+          `Search findings:\n${searchText}\n\n` +
+          `Real URLs (use only these):\n${allowedUrls.join("\n")}`,
+      },
+    ],
+  });
+  const items = extract.parsed_output?.items ?? [];
+  return { result: filterGroundedEvidence(items, allowedUrls, 3), usage: extract.usage };
 }

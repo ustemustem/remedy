@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { deriveDashboardFeed, deriveDashboardNeeds, deriveThemeEntries } from "@/lib/graph";
-import { getFitSignals } from "@/lib/mockAI";
-import type { CanvasNodeData, FitSignal } from "@/lib/types";
+import { getFitSignals, getGroundedEvidence } from "@/lib/mockAI";
+import type { CanvasNodeData, FitSignal, EvidenceExample } from "@/lib/types";
 import AITextLoading from "@/components/kokonutui/ai-text-loading";
 import { SessionSummarySection } from "./session-summary-section";
 import { UnderstoodSummary } from "./understood-summary";
@@ -94,11 +94,29 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
       cancelled = true;
     };
   }, [needs, vent]);
-  const needsWithFit = useMemo(
-    () => (fits ? needs.map((n, i) => ({ ...n, fit: fits[i] })) : needs),
-    [needs, fits]
+  // Grounded evidence (Phase 3b): one call per need, in parallel with fit. Loads
+  // per-card (non-gating) since web_search is slow; omitted on failure.
+  const [evidence, setEvidence] = useState<EvidenceExample[][] | null>(null);
+  const [trackedForEvidence, setTrackedForEvidence] = useState(needs);
+  if (needs !== trackedForEvidence) {
+    setTrackedForEvidence(needs);
+    setEvidence(null);
+  }
+  useEffect(() => {
+    let cancelled = false;
+    getGroundedEvidence(vent, needs).then((r) => {
+      if (!cancelled) setEvidence(r);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [needs, vent]);
+
+  const needsEnriched = useMemo(
+    () => needs.map((n, i) => ({ ...n, fit: fits?.[i], evidence: evidence?.[i] })),
+    [needs, fits, evidence]
   );
-  const feed = useMemo(() => deriveDashboardFeed(needsWithFit), [needsWithFit]);
+  const feed = useMemo(() => deriveDashboardFeed(needsEnriched), [needsEnriched]);
 
   // Section 1's ref<->row two-way highlight, lifted here since UnderstoodSummary
   // and NeedSummaryList are siblings that both need to read and drive it.
@@ -189,16 +207,16 @@ export function PrescriptionReport({ nodes }: { nodes: CanvasNodeData[] }) {
               />
             ) : (
               <>
-                {feed.hero && <PrescriptionCard need={feed.hero} />}
+                {feed.hero && <PrescriptionCard need={feed.hero} evidenceLoading={evidence === null} />}
                 {feed.support.map((n) => (
-                  <PrescriptionCardCompact key={n.node.id} need={n} />
+                  <PrescriptionCardCompact key={n.node.id} need={n} evidenceLoading={evidence === null} />
                 ))}
                 {feed.hidden.length > 0 && (
                   <>
                     <div className="see-more-panel" data-open={showHidden}>
                       <div className="space-y-3">
                         {feed.hidden.map((n) => (
-                          <PrescriptionCardCompact key={n.node.id} need={n} />
+                          <PrescriptionCardCompact key={n.node.id} need={n} evidenceLoading={evidence === null} />
                         ))}
                       </div>
                     </div>

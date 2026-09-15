@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { mapSummarySegments, mapReadoutSegments, computeCompositeFit } from "./report-segments";
+import { mapSummarySegments, mapReadoutSegments, computeCompositeFit, filterGroundedEvidence } from "./report-segments";
 import type { DashboardNeed } from "./graph";
+import type { EvidenceExample } from "./types";
+
+function ev(url: string, kind: EvidenceExample["kind"] = "app"): EvidenceExample {
+  return { kind, label: "L", detail: "D", url };
+}
 
 function need(id: string): DashboardNeed {
   return {
@@ -57,5 +62,24 @@ describe("computeCompositeFit", () => {
   it("clamps out-of-range and non-finite parts", () => {
     expect(computeCompositeFit(150, -10)).toBe(50); // 100 & 0
     expect(computeCompositeFit(Number.NaN, 80)).toBe(40); // 0 & 80
+  });
+});
+
+describe("filterGroundedEvidence", () => {
+  const allowed = ["https://a.com", "https://b.com", "https://c.com"];
+  it("drops urls not in the real citation set", () => {
+    const out = filterGroundedEvidence([ev("https://a.com"), ev("https://evil.com")], allowed);
+    expect(out.map((e) => e.url)).toEqual(["https://a.com"]);
+  });
+  it("dedups by url and caps at max", () => {
+    const out = filterGroundedEvidence(
+      [ev("https://a.com"), ev("https://a.com"), ev("https://b.com"), ev("https://c.com")],
+      allowed,
+      2
+    );
+    expect(out.map((e) => e.url)).toEqual(["https://a.com", "https://b.com"]);
+  });
+  it("returns [] when nothing matches", () => {
+    expect(filterGroundedEvidence([ev("https://x.com")], allowed)).toEqual([]);
   });
 });

@@ -236,3 +236,25 @@ export const FitSignalSchema = z.object({
     .describe("One fit entry per recommendation, in the same order as the numbered list."),
 });
 export type FitSignalResult = z.infer<typeof FitSignalSchema>;
+
+/**
+ * Grounded evidence extraction (Phase 3b). Shapes web_search findings into up to
+ * 3 cited items. `url` MUST be one of the real URLs provided to the model; the
+ * server drops any that isn't (filterGroundedEvidence). Empty is valid (honest gap).
+ */
+export const GroundedEvidenceSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        kind: z
+          .enum(["app", "community", "role"])
+          .describe("app = a tool/app; community = a discussion/write-up (Reddit/forum/blog); role = a LinkedIn role-search."),
+        label: z.string().describe("Short source label (<= 6 words)."),
+        detail: z.string().describe("One line on why this source supports the recommendation."),
+        url: z.string().describe("The source URL — MUST be copied from the provided list of real URLs."),
+      })
+    )
+    .max(3)
+    .describe("0-3 most relevant grounded sources; return fewer or none rather than weak matches."),
+});
+export type GroundedEvidenceResult = z.infer<typeof GroundedEvidenceSchema>;

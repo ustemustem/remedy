@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mapSummarySegments, mapReadoutSegments } from "./report-segments";
+import { mapSummarySegments, mapReadoutSegments, computeCompositeFit } from "./report-segments";
 import type { DashboardNeed } from "./graph";
 
 function need(id: string): DashboardNeed {
@@ -46,5 +46,16 @@ describe("mapReadoutSegments", () => {
       { content: "y", emphasis: false },
     ]);
     expect(out).toEqual([{ content: "x", emphasis: true }, { content: "y" }]);
+  });
+});
+
+describe("computeCompositeFit", () => {
+  it("is the 50/50 average, rounded", () => {
+    expect(computeCompositeFit(90, 70)).toBe(80);
+    expect(computeCompositeFit(75, 86)).toBe(81); // (75+86)/2 = 80.5 -> 81
+  });
+  it("clamps out-of-range and non-finite parts", () => {
+    expect(computeCompositeFit(150, -10)).toBe(50); // 100 & 0
+    expect(computeCompositeFit(Number.NaN, 80)).toBe(40); // 0 & 80
   });
 });

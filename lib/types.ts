@@ -92,6 +92,18 @@ export interface EvidenceExample {
   detail: string;
 }
 
+/** Report Section 3 fit signal (Phase 3a). Composite (0-100) = coverage of the
+ *  user's stated needs + model confidence, with a one-line note for each part.
+ *  `score` is code-computed from the two parts. Report-derived — lives on
+ *  DashboardNeed, never on a node (no fabricated numbers on nodes). */
+export interface FitSignal {
+  score: number;
+  coverageScore: number;
+  coverageNote: string;
+  confidenceScore: number;
+  confidenceNote: string;
+}
+
 export interface CanvasNodeData {
   id: string;
   kind: NodeKind;

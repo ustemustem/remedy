@@ -4,10 +4,9 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { deriveEvidenceComparison, type DashboardNeed } from "@/lib/graph";
 import { InfoTooltip } from "./info-tooltip";
+import { FitScore, FitBars } from "./fit-meter";
 import { cn } from "@/lib/utils";
 
-const MATCH_TOOLTIP =
-  "How well this fits you, out of 100. Built from how many similar teams we have data from, and how close their size, setup, and limits are to yours.";
 const OUTCOME_TOOLTIP =
   "Median change for teams that made this change, versus their own pace before. Half did better, half did less.";
 const RETENTION_TOOLTIP = "Share of those teams still using the change six months on.";
@@ -118,15 +117,9 @@ export function PrescriptionCard({ need }: { need: DashboardNeed }) {
         </div>
 
         <div className="grid grid-cols-[auto_1fr] gap-4">
-          {node.matchScore != null && (
-            <div className="flex flex-col items-center gap-0.5 border-r border-border pr-4">
-              <span className="font-mono text-[length:var(--text-match)] font-bold leading-none text-foreground">
-                {node.matchScore}
-              </span>
-              <span className="flex items-center gap-1 text-[length:var(--text-meta)] uppercase tracking-wide text-muted-foreground">
-                Match
-                <InfoTooltip text={MATCH_TOOLTIP} />
-              </span>
+          {need.fit && (
+            <div className="flex flex-col items-center justify-center border-r border-border pr-4">
+              <FitScore fit={need.fit} size="hero" />
             </div>
           )}
 
@@ -176,6 +169,12 @@ export function PrescriptionCard({ need }: { need: DashboardNeed }) {
             )}
           </div>
         </div>
+
+        {need.fit && (
+          <div className="border-t border-border pt-3">
+            <FitBars fit={need.fit} showNotes />
+          </div>
+        )}
 
         {comparison && peerOutcome && (
           <div className="space-y-2 border-t border-border pt-3">

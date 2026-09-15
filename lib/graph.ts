@@ -1,4 +1,4 @@
-import type { CanvasNodeData, FeedbackContext, PeerOutcome, SessionStats } from "./types";
+import type { CanvasNodeData, FeedbackContext, PeerOutcome, SessionStats, FitSignal } from "./types";
 
 /** Ids of nodes that have since been revised — i.e. no longer the current version. */
 export function getSupersededIds(nodes: CanvasNodeData[]): Set<string> {
@@ -113,6 +113,8 @@ export interface DashboardNeed {
   /** The sibling counter-argument this need's path won out over, if any. */
   eliminated?: CanvasNodeData;
   peerOutcome?: PeerOutcome;
+  /** Report fit signal (Phase 3a), attached by the report after the async call. */
+  fit?: FitSignal;
 }
 
 /**
@@ -173,7 +175,7 @@ export interface DashboardFeed {
 
 export function deriveDashboardFeed(needs: DashboardNeed[]): DashboardFeed {
   const sorted = [...needs].sort(
-    (a, b) => (b.node.matchScore ?? -Infinity) - (a.node.matchScore ?? -Infinity)
+    (a, b) => (b.fit?.score ?? -Infinity) - (a.fit?.score ?? -Infinity)
   );
   const hero = sorted.find((n) => n.node.transparency !== "sponsored") ?? null;
   const rest = sorted.filter((n) => {

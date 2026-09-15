@@ -204,3 +204,35 @@ export const SessionReadoutSchema = z.object({
     .describe("The 'how we read your situation' paragraph, split into ordered segments."),
 });
 export type SessionReadoutResult = z.infer<typeof SessionReadoutSchema>;
+
+/**
+ * Report fit signal (getFitSignals, Phase 3a). One entry per recommendation, in
+ * the same order as given. Scores are the model's judgement (0-100), not
+ * measured data; the composite is computed in code (50/50). Meaning C: coverage
+ * of the user's STATED needs + the model's own confidence.
+ */
+export const FitSignalSchema = z.object({
+  fits: z
+    .array(
+      z.object({
+        coverageScore: z
+          .number()
+          .int()
+          .min(0)
+          .max(100)
+          .describe("0-100: how much of what the user STATED they need this recommendation covers."),
+        coverageNote: z.string().describe("One calm sentence explaining the coverage score."),
+        confidenceScore: z
+          .number()
+          .int()
+          .min(0)
+          .max(100)
+          .describe("0-100: how confident you are this recommendation is right and useful."),
+        confidenceNote: z.string().describe("One calm sentence explaining the confidence score."),
+      })
+    )
+    .min(1)
+    .max(12)
+    .describe("One fit entry per recommendation, in the same order as the numbered list."),
+});
+export type FitSignalResult = z.infer<typeof FitSignalSchema>;

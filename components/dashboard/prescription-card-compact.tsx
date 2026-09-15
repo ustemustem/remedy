@@ -10,10 +10,7 @@ import {
 } from "@/components/ui/collapsible";
 import { deriveEvidenceComparison, type DashboardNeed } from "@/lib/graph";
 import { EvidenceRow } from "./evidence-row";
-import { InfoTooltip } from "./info-tooltip";
-
-const MATCH_TOOLTIP =
-  "How well this fits you, out of 100. Built from how many similar teams we have data from, and how close their size, setup, and limits are to yours.";
+import { FitScore, FitBars } from "./fit-meter";
 
 export function PrescriptionCardCompact({ need }: { need: DashboardNeed }) {
   const { node, peerOutcome } = need;
@@ -34,18 +31,9 @@ export function PrescriptionCardCompact({ need }: { need: DashboardNeed }) {
         </div>
 
         <div className="grid grid-cols-[auto_1fr] items-center gap-4">
-          {node.matchScore != null && (
-            <div className="border-r border-border pr-4 text-center">
-              {/* --text-kpi (26px) against the hero's --text-match (30px):
-                  with both card types now sharing one anatomy, the size of
-                  this number is the only thing left that separates them. */}
-              <div className="font-mono text-[length:var(--text-kpi)] font-bold leading-none text-foreground">
-                {node.matchScore}
-              </div>
-              <div className="mt-1 flex items-center justify-center gap-1 text-[length:var(--text-meta)] uppercase tracking-wide text-muted-foreground">
-                Match
-                <InfoTooltip text={MATCH_TOOLTIP} />
-              </div>
+          {need.fit && (
+            <div className="border-r border-border pr-4">
+              <FitScore fit={need.fit} size="compact" />
             </div>
           )}
 
@@ -96,6 +84,8 @@ export function PrescriptionCardCompact({ need }: { need: DashboardNeed }) {
             )}
           </div>
         </div>
+
+        {need.fit && <FitBars fit={need.fit} showNotes={false} />}
 
         {evidenceCount > 0 && (
           <Collapsible>

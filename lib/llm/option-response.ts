@@ -1,5 +1,4 @@
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { getClient, MODELS, isLlmMock } from "./client";
+import { parseStructured, MODELS, isLlmMock } from "./client";
 import { optionResponseSystemPrompt, feedbackContextLine, type Locale } from "./prompts";
 import { OptionResponseSchema, type OptionResponse } from "./schemas";
 import type { Usage } from "./telemetry";
@@ -41,7 +40,6 @@ export async function readOptionResponse(
   locale: Locale
 ): Promise<{ response: OptionResponse; usage: Usage }> {
   if (isLlmMock()) return mockOptionResponse(ctx);
-  const client = getClient();
 
   const optionLine = ctx.option
     ? `They picked this option:\n- ${ctx.option.title}: ${ctx.option.subtitle}`
@@ -54,15 +52,13 @@ export async function readOptionResponse(
     optionLine +
     feedbackContextLine(ctx.liked, ctx.disliked);
 
-  const msg = await client.messages.parse({
+  const { result, usage } = await parseStructured({
     model: MODELS.reasoning,
-    max_tokens: 1024,
+    maxTokens: 1024,
     system: optionResponseSystemPrompt(locale),
-    output_config: { format: zodOutputFormat(OptionResponseSchema) },
-    messages: [{ role: "user", content: userContent }],
+    user: userContent,
+    schema: OptionResponseSchema,
+    schemaName: "option_response",
   });
-  if (!msg.parsed_output) {
-    throw new Error("Model did not return a parseable option response.");
-  }
-  return { response: msg.parsed_output, usage: msg.usage };
+  return { response: result, usage };
 }

@@ -51,6 +51,10 @@ export default function Home() {
   const SMOOTHING = 0.8;
   const sourceStyle: SourceStyle = "rail";
 
+  // The Experiments panel is a dev-only tuning tool used while building this —
+  // shelved for now. Flip to true to bring the flask panel back.
+  const SHOW_EXPERIMENTS = false;
+
   // Live experiments — mounted once here (not per-screen) so the same panel
   // and the same tuned values are reachable from chat, canvas, and dashboard
   // alike. Card padding / micro type scale / link weight are design-critique
@@ -223,22 +227,24 @@ export default function Home() {
         />
       </div>
       <div className="min-w-0 flex-1 overflow-hidden">{content}</div>
-      <ExperimentOverlay
-        optionRadius={optionRadius}
-        onOptionRadiusChange={setOptionRadius}
-        headerRadius={headerRadius}
-        onHeaderRadiusChange={setHeaderRadius}
-        cardPadding={cardPadding}
-        onCardPaddingChange={setCardPadding}
-        textMeta={textMeta}
-        onTextMetaChange={setTextMeta}
-        textLabel={textLabel}
-        onTextLabelChange={setTextLabel}
-        textQuote={textQuote}
-        onTextQuoteChange={setTextQuote}
-        linkWeight={linkWeight}
-        onLinkWeightChange={setLinkWeight}
-      />
+      {SHOW_EXPERIMENTS && (
+        <ExperimentOverlay
+          optionRadius={optionRadius}
+          onOptionRadiusChange={setOptionRadius}
+          headerRadius={headerRadius}
+          onHeaderRadiusChange={setHeaderRadius}
+          cardPadding={cardPadding}
+          onCardPaddingChange={setCardPadding}
+          textMeta={textMeta}
+          onTextMetaChange={setTextMeta}
+          textLabel={textLabel}
+          onTextLabelChange={setTextLabel}
+          textQuote={textQuote}
+          onTextQuoteChange={setTextQuote}
+          linkWeight={linkWeight}
+          onLinkWeightChange={setLinkWeight}
+        />
+      )}
     </div>
   );
 }

@@ -1,81 +1,132 @@
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
+import { z } from "zod/v4";
+import type { Usage } from "./telemetry";
 
 // Server-only guard (security checklist A: hide API keys). This module reads
-// the API key and must never end up in a client bundle. If it is ever
-// imported into client code it throws loudly at module load instead of
-// silently shipping key-reading code to the browser. The stronger,
-// build-time enforcement is the `server-only` package — add it as a Phase 1
-// hardening (it wasn't installed yet).
+// the API key and must never end up in a client bundle. If it is ever imported
+// into client code it throws loudly at module load instead of silently shipping
+// key-reading code to the browser.
 if (typeof window !== "undefined") {
-  throw new Error("lib/llm/client must only be imported from server code (route handlers, server components).");
+  throw new Error(
+    "lib/llm/client must only be imported from server code (route handlers, server components)."
+  );
 }
 
 /**
- * The Anthropic client, server-side only. The key is read from the
- * environment (`.env.local` at the project root) — never hardcoded, never
- * sent to the client. This module must only ever be imported from server
- * code (route handlers, server components), so the key stays on the server.
- *
- * See the backend roadmap §00·3 (no connector — we call the API from our own
- * server) and §Phase 0.
+ * The LLM is Google Gemini, reached through its OpenAI-compatible endpoint so we
+ * can use the standard OpenAI SDK. The key is a FREE Google AI Studio key, read
+ * from the environment (`.env.local`) — never hardcoded, never sent to the
+ * client. Gemini's free tier means the whole app runs at zero cost.
  */
+const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/";
 
 function requireApiKey(): string {
-  const key = process.env.ANTHROPIC_API_KEY;
+  const key = process.env.GEMINI_API_KEY;
   if (!key || key.trim() === "") {
     throw new Error(
-      "ANTHROPIC_API_KEY is not set. Add it to .env.local at the project root " +
-        "(ANTHROPIC_API_KEY=sk-ant-...), then restart the dev server."
+      "GEMINI_API_KEY is not set. Get a free key at https://aistudio.google.com/apikey " +
+        "and add it to .env.local (GEMINI_API_KEY=...), then restart the dev server."
     );
   }
   return key;
 }
 
-let cached: Anthropic | null = null;
+let cached: OpenAI | null = null;
 
-/** Lazily-constructed singleton so the key is only read when a call is made.
- *
- * Identity-linked API keys must say which workspace each request acts in. If
- * ANTHROPIC_WORKSPACE_ID is set we send it as the `anthropic-workspace-id`
- * header; a plain workspace-scoped key doesn't need it and can leave it unset. */
-export function getClient(): Anthropic {
+/** Lazily-constructed singleton so the key is only read when a real call runs. */
+function getClient(): OpenAI {
   if (cached === null) {
-    const workspaceId = process.env.ANTHROPIC_WORKSPACE_ID?.trim();
-    cached = new Anthropic({
-      apiKey: requireApiKey(),
-      ...(workspaceId ? { defaultHeaders: { "anthropic-workspace-id": workspaceId } } : {}),
-    });
+    cached = new OpenAI({ apiKey: requireApiKey(), baseURL: GEMINI_BASE_URL });
   }
   return cached;
 }
 
 /**
- * Mock mode. When `LLM_MOCK` is set (`.env.local`), the seams return canned
- * fixtures instead of calling the API, so the ENTIRE real request path — route
- * handlers, zod validation, telemetry, graph assembly, and the client render —
- * runs end to end with no API key and no cost. Dev/testing only: it lets you
- * click through the real flow (and see the loading animations) for free. A real
- * key is not consulted while this is on. Read at call time so toggling it only
- * needs a dev-server restart (Next reads env at startup).
+ * Mock mode. When on, the seams return canned fixtures instead of calling the
+ * API, so the ENTIRE real request path — route handlers, zod validation,
+ * telemetry, graph assembly, client render — runs end to end with no key and no
+ * cost. Explicit `LLM_MOCK=1`/`0` wins; otherwise we default to mock whenever
+ * there's no key present, so the app never makes a real call (or throws for a
+ * missing key) by accident. Read at call time so toggling only needs a restart.
  */
 export function isLlmMock(): boolean {
   const v = process.env.LLM_MOCK?.trim().toLowerCase();
-  return v === "1" || v === "true" || v === "yes" || v === "on";
+  if (v === "1" || v === "true" || v === "yes" || v === "on") return true;
+  if (v === "0" || v === "false" || v === "no" || v === "off") return false;
+  const key = process.env.GEMINI_API_KEY;
+  return !key || key.trim() === "";
 }
 
 /**
- * Model tiers, per the roadmap §02. `reasoning` carries graph generation,
- * summaries, the fit signal, and grounded recommendations; `cheap` handles
- * the one-enum / one-sentence seams (classifyNote, readout). Escalate a
- * specific seam to a bigger model only when the eval set shows it plateauing
- * — measured, not assumed.
+ * Model tiers. `reasoning` carries graph generation, summaries, and the fit
+ * signal; `cheap` handles the one-enum / one-sentence seams. Both default to
+ * Gemini 2.5 Flash (fast, free tier, strong at structured output) and are
+ * overridable via env so you can point a seam at a different Gemini model
+ * without touching code.
  */
 export const MODELS = {
-  reasoning: "claude-sonnet-5",
-  cheap: "claude-haiku-4-5",
-} as const;
+  reasoning: process.env.GEMINI_MODEL?.trim() || "gemini-3.8-flash",
+  cheap: process.env.GEMINI_MODEL_CHEAP?.trim() || "gemini-3.8-flash",
+};
 
-/** The web search tool variant Sonnet 5 supports (verified against the
- *  installed SDK's tool-type union). Real, cited results, run server-side by
- *  Anthropic — this is the grounding engine (roadmap §03). */
-export const WEB_SEARCH_TOOL_TYPE = "web_search_20260209" as const;
+function mapUsage(
+  u: { prompt_tokens?: number | null; completion_tokens?: number | null } | null | undefined
+): Usage {
+  if (!u) return {};
+  return { input_tokens: u.prompt_tokens ?? null, output_tokens: u.completion_tokens ?? null };
+}
+
+function stripFences(s: string): string {
+  const t = s.trim();
+  const m = t.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+  return m ? m[1].trim() : t;
+}
+
+/**
+ * The single seam every real LLM call goes through: system + user in, a
+ * Zod-schema-validated object out. Uses Gemini's OpenAI-compatible endpoint with
+ * JSON-schema structured output, then re-validates with the same Zod schema so a
+ * malformed response throws here rather than flowing downstream. Callers pass
+ * the exact same schemas they always used; only the transport changed.
+ */
+export async function parseStructured<T>(opts: {
+  model: string;
+  system: string;
+  user: string;
+  schema: z.ZodType<T>;
+  schemaName?: string;
+  maxTokens?: number;
+}): Promise<{ result: T; usage: Usage }> {
+  const client = getClient();
+  const jsonSchema = z.toJSONSchema(opts.schema) as Record<string, unknown>;
+  // Drop the JSON Schema dialect metadata: it's unnecessary here and some
+  // providers reject the unknown top-level `$schema` key.
+  delete jsonSchema.$schema;
+  const request = () =>
+    client.chat.completions.create({
+      model: opts.model,
+      max_tokens: opts.maxTokens ?? 2048,
+      messages: [
+        { role: "system", content: opts.system },
+        { role: "user", content: opts.user },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: { name: opts.schemaName ?? "output", schema: jsonSchema },
+      },
+    });
+  // The Gemini free tier returns 429 (rate limit) / 503 (overload) under bursts;
+  // both are transient, so wait briefly and retry once before giving up.
+  let completion: Awaited<ReturnType<typeof request>>;
+  try {
+    completion = await request();
+  } catch (err) {
+    const status = (err as { status?: number }).status;
+    if (status !== 429 && status !== 503) throw err;
+    await new Promise((r) => setTimeout(r, 2500));
+    completion = await request();
+  }
+  const content = completion.choices[0]?.message?.content;
+  if (!content) throw new Error("Model returned no content.");
+  return { result: opts.schema.parse(JSON.parse(stripFences(content))), usage: mapUsage(completion.usage) };
+}

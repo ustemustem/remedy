@@ -1,26 +1,16 @@
-import type Anthropic from "@anthropic-ai/sdk";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { getClient, MODELS, isLlmMock, WEB_SEARCH_TOOL_TYPE } from "./client";
+import { parseStructured, MODELS, isLlmMock } from "./client";
 import {
   understoodSummarySystemPrompt,
   sessionReadoutSystemPrompt,
   fitSignalSystemPrompt,
-  groundingSearchSystemPrompt,
-  groundingExtractSystemPrompt,
   type Locale,
 } from "./prompts";
-import {
-  UnderstoodSummarySchema,
-  SessionReadoutSchema,
-  FitSignalSchema,
-  GroundedEvidenceSchema,
-} from "./schemas";
+import { UnderstoodSummarySchema, SessionReadoutSchema, FitSignalSchema } from "./schemas";
 import type { Usage } from "./telemetry";
 import type { SessionStats, FitSignal, EvidenceExample } from "../types";
 import {
   fallbackUnderstoodSummary,
   fallbackSessionReadout,
-  filterGroundedEvidence,
   type RawSummarySegment,
   type RawReadoutSegment,
 } from "../report-segments";
@@ -35,7 +25,7 @@ export interface ReadoutThemeInput {
   type: "like" | "dislike";
 }
 
-/** getUnderstoodSummary — cheap Haiku call. Returns the model's raw segments;
+/** getUnderstoodSummary — cheap call. Returns the model's raw segments;
  *  the client maps refIndex back to node ids. */
 export async function readUnderstoodSummary(
   input: { vent: string; needs: SummaryNeedInput[] },
@@ -56,26 +46,23 @@ export async function readUnderstoodSummary(
     return { result, usage: {} };
   }
 
-  const client = getClient();
   const numbered = input.needs.map((n, i) => `${i + 1}. ${n.label} — "${n.quote}"`).join("\n");
   const userContent =
     `The user's original message:\n"${input.vent}"\n\n` +
     `The needs they kept (numbered):\n${numbered}`;
 
-  const msg = await client.messages.parse({
+  const { result, usage } = await parseStructured({
     model: MODELS.cheap,
-    max_tokens: 512,
+    maxTokens: 512,
     system: understoodSummarySystemPrompt(locale),
-    output_config: { format: zodOutputFormat(UnderstoodSummarySchema) },
-    messages: [{ role: "user", content: userContent }],
+    user: userContent,
+    schema: UnderstoodSummarySchema,
+    schemaName: "understood_summary",
   });
-  if (!msg.parsed_output) {
-    throw new Error("Model did not return a parseable summary.");
-  }
-  return { result: msg.parsed_output.segments, usage: msg.usage };
+  return { result: result.segments, usage };
 }
 
-/** getSessionReadout — cheap Haiku call. Returns the model's raw segments. */
+/** getSessionReadout — cheap call. Returns the model's raw segments. */
 export async function readSessionReadout(
   input: { stats: SessionStats; themes: ReadoutThemeInput[] },
   locale: Locale
@@ -90,7 +77,6 @@ export async function readSessionReadout(
     return { result, usage: {} };
   }
 
-  const client = getClient();
   const themeLines =
     input.themes.length > 0
       ? input.themes.map((t) => `- ${t.type}: ${t.theme}`).join("\n")
@@ -103,17 +89,15 @@ export async function readSessionReadout(
     `- own-framing steers: ${input.stats.ownFramingCount}, notes: ${input.stats.noteCount}\n\n` +
     `Themes the user marked:\n${themeLines}`;
 
-  const msg = await client.messages.parse({
+  const { result, usage } = await parseStructured({
     model: MODELS.cheap,
-    max_tokens: 384,
+    maxTokens: 384,
     system: sessionReadoutSystemPrompt(locale),
-    output_config: { format: zodOutputFormat(SessionReadoutSchema) },
-    messages: [{ role: "user", content: userContent }],
+    user: userContent,
+    schema: SessionReadoutSchema,
+    schemaName: "session_readout",
   });
-  if (!msg.parsed_output) {
-    throw new Error("Model did not return a parseable readout.");
-  }
-  return { result: msg.parsed_output.segments, usage: msg.usage };
+  return { result: result.segments, usage };
 }
 
 export interface FitNeedInput {
@@ -121,7 +105,7 @@ export interface FitNeedInput {
   body: string;
 }
 
-/** getFitSignals — batched Sonnet call scoring every kept recommendation's fit.
+/** getFitSignals — batched call scoring every kept recommendation's fit.
  *  Returns raw parts (no composite); the client computes the composite. */
 export async function readFitSignals(
   input: { vent: string; needs: FitNeedInput[] },
@@ -138,46 +122,20 @@ export async function readFitSignals(
     return { result, usage: {} };
   }
 
-  const client = getClient();
   const numbered = input.needs.map((n, i) => `${i + 1}. ${n.label} — ${n.body}`).join("\n");
   const userContent =
     `The user's original message:\n"${input.vent}"\n\n` +
     `The recommendations to score (numbered):\n${numbered}`;
 
-  const msg = await client.messages.parse({
+  const { result, usage } = await parseStructured({
     model: MODELS.reasoning,
-    max_tokens: 1024,
+    maxTokens: 1024,
     system: fitSignalSystemPrompt(locale),
-    output_config: { format: zodOutputFormat(FitSignalSchema) },
-    messages: [{ role: "user", content: userContent }],
+    user: userContent,
+    schema: FitSignalSchema,
+    schemaName: "fit_signals",
   });
-  if (!msg.parsed_output) {
-    throw new Error("Model did not return parseable fit signals.");
-  }
-  return { result: msg.parsed_output.fits, usage: msg.usage };
-}
-
-function extractText(content: Anthropic.ContentBlock[]): string {
-  return content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("");
-}
-
-/** Pull cited URLs out of web_search_tool_result blocks, defensively — the exact
- *  result-block shape is version-specific, so check at runtime. */
-function extractCitations(content: Anthropic.ContentBlock[]): string[] {
-  const urls: string[] = [];
-  for (const block of content) {
-    const b = block as unknown as { type: string; content?: unknown };
-    if (b.type === "web_search_tool_result" && Array.isArray(b.content)) {
-      for (const r of b.content) {
-        const rr = r as { url?: string };
-        if (typeof rr.url === "string") urls.push(rr.url);
-      }
-    }
-  }
-  return urls;
+  return { result: result.fits, usage };
 }
 
 export interface GroundNeedInput {
@@ -185,9 +143,11 @@ export interface GroundNeedInput {
   body: string;
 }
 
-/** groundRecommendations for ONE recommendation (Phase 3b): web_search ->
- *  structured extraction constrained to the real URLs -> code citation-exists +
- *  dedup. Returns [] on an honest gap (no citations). */
+/** groundRecommendations for ONE recommendation (Phase 3b). Deferred on the free
+ *  Gemini build: Gemini's free tier has no built-in web_search tool, so rather
+ *  than fabricate citations we return no evidence. Evidence is non-gating in the
+ *  report — it loads per-card and simply doesn't render when empty. The mock
+ *  branch still returns canned examples for offline/demo use. */
 export async function readGroundedEvidenceForOne(
   input: { vent: string; recommendation: GroundNeedInput },
   locale: Locale
@@ -204,45 +164,6 @@ export async function readGroundedEvidenceForOne(
     return { result, usage: {} };
   }
 
-  const client = getClient();
-
-  // 1) web_search — real sources + cited URLs.
-  const search = await client.messages.create({
-    model: MODELS.reasoning,
-    max_tokens: 1024,
-    system: groundingSearchSystemPrompt(locale),
-    tools: [{ type: WEB_SEARCH_TOOL_TYPE, name: "web_search", max_uses: 3 }],
-    messages: [
-      {
-        role: "user",
-        content:
-          `The user's situation:\n"${input.vent}"\n\n` +
-          `The recommendation to support:\n${input.recommendation.label} — ${input.recommendation.body}`,
-      },
-    ],
-  });
-  const searchText = extractText(search.content);
-  const allowedUrls = extractCitations(search.content);
-  if (allowedUrls.length === 0) {
-    return { result: [], usage: search.usage };
-  }
-
-  // 2) structured extraction, constrained to the real URLs.
-  const extract = await client.messages.parse({
-    model: MODELS.cheap,
-    max_tokens: 768,
-    system: groundingExtractSystemPrompt(locale),
-    output_config: { format: zodOutputFormat(GroundedEvidenceSchema) },
-    messages: [
-      {
-        role: "user",
-        content:
-          `Recommendation:\n${input.recommendation.label} — ${input.recommendation.body}\n\n` +
-          `Search findings:\n${searchText}\n\n` +
-          `Real URLs (use only these):\n${allowedUrls.join("\n")}`,
-      },
-    ],
-  });
-  const items = extract.parsed_output?.items ?? [];
-  return { result: filterGroundedEvidence(items, allowedUrls, 3), usage: extract.usage };
+  void locale;
+  return { result: [], usage: {} };
 }

@@ -1,5 +1,4 @@
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { getClient, MODELS, isLlmMock } from "./client";
+import { parseStructured, MODELS, isLlmMock } from "./client";
 import {
   classifyNoteSystemPrompt,
   noteContentSystemPrompt,
@@ -29,16 +28,21 @@ export async function classifyNoteReal(
       /\b(wrong|different|instead|actually|rather|no,|off base|not it|missed|misunderstood)\b/i.test(note);
     return { intent: branchy ? "branch_new_direction" : "refine_in_place", usage: {} };
   }
-  const client = getClient();
-  const msg = await client.messages.parse({
-    model: MODELS.cheap,
-    max_tokens: 128,
-    system: classifyNoteSystemPrompt(locale),
-    output_config: { format: zodOutputFormat(NoteIntentSchema) },
-    messages: [{ role: "user", content: note }],
-  });
-  // Default to the safe intent if the model somehow returns nothing parseable.
-  return { intent: msg.parsed_output?.intent ?? "refine_in_place", usage: msg.usage };
+  try {
+    const { result, usage } = await parseStructured({
+      model: MODELS.cheap,
+      maxTokens: 128,
+      system: classifyNoteSystemPrompt(locale),
+      user: note,
+      schema: NoteIntentSchema,
+      schemaName: "note_intent",
+    });
+    return { intent: result.intent, usage };
+  } catch {
+    // Classify is low-stakes — default to the safe intent rather than failing
+    // the whole note submission if the model returns something unparseable.
+    return { intent: "refine_in_place", usage: {} };
+  }
 }
 
 export interface NoteContext {
@@ -69,7 +73,6 @@ export async function readNoteContent(
       usage: {},
     };
   }
-  const client = getClient();
   const userContent =
     `The card (kind: ${ctx.kind}):\n` +
     `Title: ${ctx.parentTitle}\n` +
@@ -77,17 +80,15 @@ export async function readNoteContent(
     `The user's note:\n"${ctx.note}"` +
     feedbackContextLine(ctx.liked, ctx.disliked);
 
-  const msg = await client.messages.parse({
+  const { result, usage } = await parseStructured({
     model: MODELS.reasoning,
-    max_tokens: 1024,
+    maxTokens: 1024,
     system: noteContentSystemPrompt(op, locale),
-    output_config: { format: zodOutputFormat(CardContentSchema) },
-    messages: [{ role: "user", content: userContent }],
+    user: userContent,
+    schema: CardContentSchema,
+    schemaName: "card_content",
   });
-  if (!msg.parsed_output) {
-    throw new Error("Model did not return parseable note content.");
-  }
-  return { content: msg.parsed_output, usage: msg.usage };
+  return { content: result, usage };
 }
 
 /** refineChoiceOptions — regenerate a choice card's option set from a note. */
@@ -106,22 +107,19 @@ export async function readRefinedOptions(
       usage: {},
     };
   }
-  const client = getClient();
   const userContent =
     `The choice card's question:\n${ctx.parentTitle}\n` +
     (ctx.parentBody ? `Context: ${ctx.parentBody}\n` : "") +
     `\nThe user's note (the current options don't fit):\n"${ctx.note}"` +
     feedbackContextLine(ctx.liked, ctx.disliked);
 
-  const msg = await client.messages.parse({
+  const { result, usage } = await parseStructured({
     model: MODELS.reasoning,
-    max_tokens: 768,
+    maxTokens: 768,
     system: refineOptionsSystemPrompt(locale),
-    output_config: { format: zodOutputFormat(RefinedOptionsSchema) },
-    messages: [{ role: "user", content: userContent }],
+    user: userContent,
+    schema: RefinedOptionsSchema,
+    schemaName: "refined_options",
   });
-  if (!msg.parsed_output) {
-    throw new Error("Model did not return parseable options.");
-  }
-  return { options: msg.parsed_output.options, usage: msg.usage };
+  return { options: result.options, usage };
 }

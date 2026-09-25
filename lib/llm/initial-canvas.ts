@@ -1,5 +1,4 @@
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { getClient, MODELS, isLlmMock } from "./client";
+import { parseStructured, MODELS, isLlmMock } from "./client";
 import { initialCanvasSystemPrompt, type Locale } from "./prompts";
 import { InitialReadingSchema, type InitialReading } from "./schemas";
 import type { Usage } from "./telemetry";
@@ -61,19 +60,16 @@ export async function readInitialCanvas(
   locale: Locale
 ): Promise<{ reading: InitialReading; usage: Usage }> {
   if (isLlmMock()) return mockInitialReading(chatText);
-  const client = getClient();
-  const msg = await client.messages.parse({
+  // The vent is untrusted data in the user turn — behaviour is in the system prompt.
+  const { result, usage } = await parseStructured({
     model: MODELS.reasoning,
-    max_tokens: 2048,
+    maxTokens: 2048,
     system: initialCanvasSystemPrompt(locale),
-    output_config: { format: zodOutputFormat(InitialReadingSchema) },
-    // The vent is untrusted data in the user turn — behaviour is in the system prompt.
-    messages: [{ role: "user", content: chatText }],
+    user: chatText,
+    schema: InitialReadingSchema,
+    schemaName: "initial_reading",
   });
-  if (!msg.parsed_output) {
-    throw new Error("Model did not return a parseable reading.");
-  }
-  return { reading: msg.parsed_output, usage: msg.usage };
+  return { reading: result, usage };
 }
 
 /**

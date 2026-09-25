@@ -24,32 +24,10 @@ export interface CallRecord {
   usage: Usage;
 }
 
-/** Running token totals for this server process — surfaced (dev-facing) via
- *  GET /api/usage and the Experiments panel. Tokens USED, never "remaining":
- *  Gemini's API doesn't expose remaining free-tier quota. Process-local, so it
- *  resets on server restart. */
-export interface UsageTotals {
-  calls: number;
-  inputTokens: number;
-  outputTokens: number;
-}
-const totals: UsageTotals = { calls: 0, inputTokens: 0, outputTokens: 0 };
-export function getUsageTotals(): UsageTotals {
-  return { ...totals };
-}
-
-/** The sink. Console for Phase 0; DB-backed later. Also folds real token usage
- *  into the process totals above (a mock call reports {} → counts nothing). */
+/** The sink. Console for Phase 0; DB-backed later. */
 export function record(call: CallRecord): void {
   // Structured single-line log so it's greppable and later parseable.
   console.info("[llm]", JSON.stringify(call));
-  const inTok = call.usage.input_tokens ?? 0;
-  const outTok = call.usage.output_tokens ?? 0;
-  if (inTok > 0 || outTok > 0) {
-    totals.calls += 1;
-    totals.inputTokens += inTok;
-    totals.outputTokens += outTok;
-  }
 }
 
 /**

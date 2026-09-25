@@ -16,8 +16,17 @@
 
 import { FlaskConical, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PaperTextureControls, usePaperTextureState } from "@/components/paper-texture-controls";
+
+interface UsageSnapshot {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  model: string;
+  mock: boolean;
+}
 
 export function ExperimentOverlay({
   optionRadius,
@@ -65,6 +74,28 @@ export function ExperimentOverlay({
   // flask panel is collapsed. See components/paper-texture-controls.tsx.
   const [paperTexture, setPaperTexture] = usePaperTextureState();
 
+  // Dev-facing LLM usage — tokens USED this server session (from /api/usage),
+  // polled while the panel is open. Never "remaining": Gemini's API doesn't
+  // expose remaining free-tier quota.
+  const [usage, setUsage] = useState<UsageSnapshot | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    const load = () =>
+      fetch("/api/usage")
+        .then((r) => r.json())
+        .then((d) => {
+          if (!cancelled) setUsage(d as UsageSnapshot);
+        })
+        .catch(() => {});
+    load();
+    const id = setInterval(load, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [open]);
+
   if (!open) {
     return (
       <button
@@ -95,6 +126,43 @@ export function ExperimentOverlay({
 
       <div className="space-y-4 overflow-y-auto p-3">
         <div className="space-y-2">
+          <p className="text-xs font-semibold text-foreground">LLM usage</p>
+          <p className="text-[10px] text-muted-foreground">
+            Tokens used this server session &mdash;{" "}
+            {usage?.mock ? "mock mode, no real calls" : "Gemini free tier, $0"}. Not remaining
+            quota: the API doesn&rsquo;t expose that.
+          </p>
+          {usage ? (
+            <dl className="space-y-1 font-mono text-[11px] text-muted-foreground">
+              <div className="flex items-center justify-between">
+                <dt>calls</dt>
+                <dd className="tabular-nums text-foreground">{usage.calls}</dd>
+              </div>
+              <div className="flex items-center justify-between">
+                <dt>input</dt>
+                <dd className="tabular-nums text-foreground">{usage.inputTokens.toLocaleString()}</dd>
+              </div>
+              <div className="flex items-center justify-between">
+                <dt>output</dt>
+                <dd className="tabular-nums text-foreground">
+                  {usage.outputTokens.toLocaleString()}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between border-t border-border pt-1">
+                <dt>total</dt>
+                <dd className="tabular-nums text-foreground">{usage.totalTokens.toLocaleString()}</dd>
+              </div>
+              <div className="flex items-center justify-between">
+                <dt>model</dt>
+                <dd className="text-foreground">{usage.model}</dd>
+              </div>
+            </dl>
+          ) : (
+            <p className="text-[10px] text-muted-foreground">loading&hellip;</p>
+          )}
+        </div>
+
+        <div className="space-y-2 border-t border-border pt-4">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold text-foreground">Option card radius</p>
             <span className="text-[11px] tabular-nums text-muted-foreground">{optionRadius}px</span>

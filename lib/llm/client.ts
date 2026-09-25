@@ -102,18 +102,30 @@ export async function parseStructured<T>(opts: {
   // Drop the JSON Schema dialect metadata: it's unnecessary here and some
   // providers reject the unknown top-level `$schema` key.
   delete jsonSchema.$schema;
-  const completion = await client.chat.completions.create({
-    model: opts.model,
-    max_tokens: opts.maxTokens ?? 2048,
-    messages: [
-      { role: "system", content: opts.system },
-      { role: "user", content: opts.user },
-    ],
-    response_format: {
-      type: "json_schema",
-      json_schema: { name: opts.schemaName ?? "output", schema: jsonSchema },
-    },
-  });
+  const request = () =>
+    client.chat.completions.create({
+      model: opts.model,
+      max_tokens: opts.maxTokens ?? 2048,
+      messages: [
+        { role: "system", content: opts.system },
+        { role: "user", content: opts.user },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: { name: opts.schemaName ?? "output", schema: jsonSchema },
+      },
+    });
+  // The Gemini free tier returns 429 (rate limit) / 503 (overload) under bursts;
+  // both are transient, so wait briefly and retry once before giving up.
+  let completion: Awaited<ReturnType<typeof request>>;
+  try {
+    completion = await request();
+  } catch (err) {
+    const status = (err as { status?: number }).status;
+    if (status !== 429 && status !== 503) throw err;
+    await new Promise((r) => setTimeout(r, 2500));
+    completion = await request();
+  }
   const content = completion.choices[0]?.message?.content;
   if (!content) throw new Error("Model returned no content.");
   return { result: opts.schema.parse(JSON.parse(stripFences(content))), usage: mapUsage(completion.usage) };

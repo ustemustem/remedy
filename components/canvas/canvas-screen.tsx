@@ -1,6 +1,15 @@
 "use client";
 
-import { useMemo, useState, useCallback, useEffect, useRef, type MutableRefObject } from "react";
+import {
+  useMemo,
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+  type MutableRefObject,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import ReactFlow, {
   Background,
   Controls,
@@ -9,6 +18,7 @@ import ReactFlow, {
   useEdgesState,
   useNodesState,
   useUpdateNodeInternals,
+  useReactFlow,
   type Node,
   type Edge,
   type NodeChange,
@@ -506,6 +516,49 @@ function NodeInternalsSync({
   return null;
 }
 
+/**
+ * "Watch it think" — reveals the initial canvas one node at a time on a
+ * timeline, calling fitView after each so the camera pulls back as the map
+ * grows. It reuses the canvas's existing per-node mount / TypewriterText /
+ * edge-draw animation — it only controls WHEN each node enters the graph, not
+ * how it animates in. Rendered inside ReactFlowProvider so useReactFlow works,
+ * and only when CanvasScreen decides the canvas is a fresh first pass.
+ */
+function RevealDirector({
+  initialGraph,
+  setGraph,
+}: {
+  initialGraph: CanvasGraph;
+  setGraph: Dispatch<SetStateAction<CanvasGraph>>;
+}) {
+  const { fitView } = useReactFlow();
+  useEffect(() => {
+    const source = initialGraph.nodes.find((n) => n.kind === "source");
+    if (!source) return;
+    const rest = initialGraph.nodes
+      .filter((n) => n.id !== source.id)
+      .sort((a, b) => a.depth - b.depth);
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    rest.forEach((node, i) => {
+      timers.push(
+        setTimeout(() => {
+          setGraph((g) => {
+            if (g.nodes.some((n) => n.id === node.id)) return g;
+            const edge = initialGraph.edges.find((e) => e.target === node.id);
+            return {
+              nodes: [...g.nodes, node],
+              edges: edge ? [...g.edges, edge] : g.edges,
+            };
+          });
+          setTimeout(() => fitView({ duration: 600, padding: 0.25 }), 90);
+        }, 800 + i * 1300)
+      );
+    });
+    return () => timers.forEach((t) => clearTimeout(t));
+  }, [initialGraph, setGraph, fitView]);
+  return null;
+}
+
 export function CanvasScreen({
   initialGraph,
   onGraphChange,
@@ -525,9 +578,43 @@ export function CanvasScreen({
   /** Source card visual identity experiment — see source-style-context.tsx. */
   sourceStyle: SourceStyle;
 }) {
-  const [graph, setGraph] = useState<CanvasGraph>(initialGraph);
+  // "Watch it think" — a brand-new first-pass canvas reveals its cards one at a
+  // time (Source, then each suggestion / counter-argument) so the map appears to
+  // build itself, rather than every card popping in at once. A resumed session
+  // the user has already worked in (any selected / feedback / revised node)
+  // skips the reveal and shows everything immediately. Held as lazy-init state
+  // (not a ref) so it's a stable value that's safe to read during render.
+  const [shouldReveal] = useState(
+    () =>
+      initialGraph.nodes.length > 1 &&
+      initialGraph.nodes.every(
+        (n) =>
+          !n.selected &&
+          !n.feedback &&
+          !(n.revisions && n.revisions.length > 0) &&
+          (n.activeRevision ?? 1) <= 1
+      )
+  );
+  // Snapshot the FULL initial graph once: page.tsx passes the LIVE graph back as
+  // `initialGraph` after the first onGraphChange, so RevealDirector must read the
+  // original full graph from here — not the (by then source-only) prop. Lazy
+  // state, not a ref, so it's safe to read during render.
+  const [fullInitial] = useState(() => initialGraph);
+
+  // When revealing, start with just the Source card so RevealDirector (below,
+  // inside ReactFlowProvider) can stage the rest in node-by-node. Otherwise the
+  // full graph renders at once, exactly as before.
+  const [graph, setGraph] = useState<CanvasGraph>(() => {
+    if (!shouldReveal) return initialGraph;
+    const source = initialGraph.nodes.find((n) => n.kind === "source");
+    return source ? { nodes: [source], edges: [] } : initialGraph;
+  });
 
   useEffect(() => {
+    // While the initial reveal is still staging cards in, don't autosave the
+    // partial graph — persist only once the full first-pass canvas is present
+    // (and immediately when there's no reveal at all).
+    if (shouldReveal && graph.nodes.length < fullInitial.nodes.length) return;
     onGraphChange?.(graph);
     // Only re-fire when the graph itself changes — onGraphChange is a fresh
     // closure on every parent render and isn't meant to gate this effect.
@@ -1541,6 +1628,10 @@ export function CanvasScreen({
             </ReactFlow>
 
             <NodeInternalsSync pendingRef={pendingInternalsUpdateRef} directRef={updateNodeInternalsDirectRef} />
+
+            {shouldReveal && (
+              <RevealDirector initialGraph={fullInitial} setGraph={setGraph} />
+            )}
 
             <ThemePanel
               themes={themeEntries}

@@ -40,6 +40,7 @@ import { GroupFrameNode, type GroupFrameNodeData } from "./group-frame-node";
 import { ThemePanel } from "./theme-panel";
 import { SoftnessProvider } from "./softness-context";
 import { SourceStyleProvider, type SourceStyle } from "./source-style-context";
+import { SurfaceFieldBackground, type SurfaceFieldSettings } from "./surface-field-background";
 import { layoutNodes } from "@/lib/layout";
 import {
   getOptionResponse,
@@ -566,6 +567,8 @@ export function CanvasScreen({
   onReset,
   softness,
   sourceStyle,
+  background = "dots",
+  fieldSettings,
 }: {
   initialGraph: CanvasGraph;
   /** Fires whenever the graph changes — lets the caller autosave to a session. */
@@ -577,7 +580,13 @@ export function CanvasScreen({
   softness: { radius: number; smoothing: number };
   /** Source card visual identity experiment — see source-style-context.tsx. */
   sourceStyle: SourceStyle;
+  /** Canvas background experiment: React Flow's dot grid, or Surface Field
+   *  (surface-field-background.tsx), which bends around the cards. */
+  background?: "dots" | "field";
+  /** Live Surface Field knobs from the Experiments panel (defaults when omitted). */
+  fieldSettings?: SurfaceFieldSettings;
 }) {
+  const canvasRootRef = useRef<HTMLDivElement>(null);
   // "Watch it think" — a brand-new first-pass canvas reveals its cards one at a
   // time (Source, then each suggestion / counter-argument) so the map appears to
   // build itself, rather than every card popping in at once. A resumed session
@@ -1550,7 +1559,9 @@ export function CanvasScreen({
   );
 
   return (
-    <div className="flex h-full flex-col bg-background">
+    // The header sits on the same paper as the pane and the report's header,
+    // so the chrome matches across both screens.
+    <div className="paper-bg flex h-full flex-col">
       <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-4 py-2.5">
         <div className="flex flex-wrap items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element -- static local SVG, no optimization needed */}
@@ -1600,10 +1611,14 @@ export function CanvasScreen({
         </DialogContent>
       </Dialog>
 
-      <div className="relative flex-1">
+      {/* The root's paper (.paper-bg, shared with the report and tunable from
+          the Experiments panel) shows through; React Flow's dots draw on top. */}
+      <div ref={canvasRootRef} className="relative flex-1">
         <SoftnessProvider value={softness}>
         <SourceStyleProvider value={sourceStyle}>
           <ReactFlowProvider>
+            {/* Field first, flow over it: the flow stays transparent. */}
+            {background === "field" && <SurfaceFieldBackground root={canvasRootRef} settings={fieldSettings} />}
             <ReactFlow
               nodes={rfNodes}
               edges={rfEdges}
@@ -1616,7 +1631,7 @@ export function CanvasScreen({
               fitView
               minZoom={0.2}
             >
-              <Background color="var(--border)" gap={24} size={1} />
+              {background === "dots" && <Background color="var(--border)" gap={16} size={1} />}
               <Controls showInteractive={false} />
               <MiniMap
                 pannable

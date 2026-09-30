@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, IBM_Plex_Mono, Courier_Prime } from "next/font/google";
+import { Geist, Courier_Prime } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
@@ -8,14 +8,9 @@ const geist = Geist({
   subsets: ["latin"],
 });
 
-const plexMono = IBM_Plex_Mono({
-  variable: "--font-plex-mono",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-});
-
-// Courier Prime — the report/prescription surface's mono (scoped to
-// `.report-scope` in globals.css). The rest of the app keeps IBM Plex Mono.
+// Courier Prime: the one mono face app-wide (labels, headings, numbers), so
+// chat, canvas and report share the same two fonts. Mapped to font-mono /
+// font-heading in globals.css's @theme block.
 const courierPrime = Courier_Prime({
   variable: "--font-courier",
   subsets: ["latin"],
@@ -38,7 +33,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geist.variable} ${plexMono.variable} ${courierPrime.variable} h-full antialiased`}
+      className={`${geist.variable} ${courierPrime.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col font-sans">
         <TooltipProvider>{children}</TooltipProvider>

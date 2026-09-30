@@ -43,12 +43,13 @@ Sharper corners read clinical, not "rounded SaaS card."
 
 | Role | Font | Usage |
 |---|---|---|
-| Display / headers / labels | `IBM Plex Mono`, bold | Used sparingly — section headers, node titles, badges |
-| Body | `Inter` or `Public Sans` | Editor text, comments, general UI copy |
-| Numeric / data | `IBM Plex Mono`, regular, `tabular-nums` | Match Score %, retention %, cohort counts |
+| Display / headers / labels | `Courier Prime`, bold | Used sparingly — section headers, node titles, badges |
+| Body | `Geist` | Editor text, comments, general UI copy |
+| Numeric / data | `Courier Prime`, regular, `tabular-nums` | Match Score %, retention %, cohort counts |
 
-Load via `next/font/google` for `IBM Plex Mono` and `Inter`. Do not mix in a third
-display face — restraint matters more than variety here.
+Load via `next/font/google` (`app/layout.tsx`). Exactly two faces app-wide, the same on
+chat, canvas and report. IBM Plex Mono was dropped (2026-09) so the three screens stop
+using three different fonts. Do not mix in a third face.
 
 **Labels vs. actions.** A label (what kind of thing is this — `SUGGESTION`,
 `COUNTER-ARGUMENT`, an origin strip's `REVISED`/`REDIRECTED`) always takes the mono/

@@ -46,7 +46,7 @@ export async function readUnderstoodSummary(
     return { result, usage: {} };
   }
 
-  const numbered = input.needs.map((n, i) => `${i + 1}. ${n.label} — "${n.quote}"`).join("\n");
+  const numbered = input.needs.map((n, i) => `${i + 1}. ${n.label}: "${n.quote}"`).join("\n");
   const userContent =
     `The user's original message:\n"${input.vent}"\n\n` +
     `The needs they kept (numbered):\n${numbered}`;
@@ -122,7 +122,7 @@ export async function readFitSignals(
     return { result, usage: {} };
   }
 
-  const numbered = input.needs.map((n, i) => `${i + 1}. ${n.label} — ${n.body}`).join("\n");
+  const numbered = input.needs.map((n, i) => `${i + 1}. ${n.label}: ${n.body}`).join("\n");
   const userContent =
     `The user's original message:\n"${input.vent}"\n\n` +
     `The recommendations to score (numbered):\n${numbered}`;

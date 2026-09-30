@@ -5,7 +5,7 @@ import { InfoTooltip } from "./info-tooltip";
 import { cn } from "@/lib/utils";
 
 const FIT_TOOLTIP =
-  "How well this fits you, out of 100 — how much of what you told us you need it covers, combined with how confident we are. Our judgement from your session, not measured data.";
+  "How well this fits you, out of 100. It combines how much of your stated need it covers with how confident we are. This is our judgement from your session, not measured data.";
 
 /** The composite fit number + label, for a card's left column. */
 export function FitScore({ fit, size }: { fit: FitSignal; size: "hero" | "compact" }) {

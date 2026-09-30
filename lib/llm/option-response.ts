@@ -24,11 +24,11 @@ async function mockOptionResponse(
     response: {
       recommendation: {
         title: "Make it one concrete step",
-        body: `You leaned toward “${pick}”. Turn it into the smallest version you can run this week and define what "done" looks like — momentum beats a perfect plan. (mock)`,
+        body: `You chose “${pick}”. Run the smallest version of it this week and decide what "done" looks like. (mock)`,
       },
       counterArgument: {
         title: "Check it's the real lever",
-        body: `Before committing, make sure “${pick}” actually moves the original problem rather than being a comfortable side-quest. (mock)`,
+        body: `Before you commit, make sure “${pick}” moves the original problem. It must not be a comfortable side task. (mock)`,
       },
     },
     usage: {},

@@ -1,12 +1,19 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { deriveDashboardNeeds } from "@/lib/graph";
+import { buildMockTasks } from "@/lib/tasks-mock";
+import { progress, type Task } from "@/lib/tasks";
+import { NextStepsCard } from "@/components/tasks/next-steps-card";
+import { TasksView } from "@/components/tasks/tasks-view";
+import { Segmented } from "@/components/tasks/segmented";
 import { PrescriptionReport } from "./prescription-report";
 import { ExitPoll } from "./exit-poll";
 import type { CanvasGraph, ReportData } from "@/lib/types";
+
+type Tab = "report" | "tasks";
 
 export function DashboardScreen({
   graph,
@@ -34,6 +41,19 @@ export function DashboardScreen({
     scrollRef.current?.focus();
   }, []);
 
+  // MOCK PASS: tasks are built from the kept needs and live in memory only.
+  // The real pass generates them while the report loads and saves them with
+  // the session.
+  const [tab, setTab] = useState<Tab>("report");
+  const [tasks, setTasks] = useState<Task[]>(() => buildMockTasks(deriveDashboardNeeds(graph.nodes)));
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const openTasks = (taskId: string | null = null) => {
+    setSelectedTaskId(taskId);
+    setTab("tasks");
+    scrollRef.current?.scrollTo({ top: 0 });
+  };
+  const { done, total } = progress(tasks);
+
   // Real, honest letterhead values — derived from the actual session/graph,
   // never fabricated (see docs/REPORT_PAPER_RESKIN.md, requirement 3).
   // DashboardScreen only mounts after a client-side step change (page.tsx is a
@@ -50,11 +70,30 @@ export function DashboardScreen({
     : null;
 
   return (
-    <div className="report-scope flex h-full flex-col bg-background">
+    <div className="report-scope paper-bg flex h-full flex-col">
       {/* Screen chrome — sits above the sheet, hidden in print/export. */}
       <header className="report-print-hide report-reveal-in flex shrink-0 items-center justify-between border-b border-border px-4 py-2.5">
         {/* eslint-disable-next-line @next/next/no-img-element -- static local SVG, no optimization needed */}
         <img src="/logo.svg" alt="Remedy" className="h-7 w-auto" />
+        <Segmented
+          label="Report sections"
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: "report", label: "Report" },
+            {
+              value: "tasks",
+              label: (
+                <>
+                  My tasks
+                  <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                    {total - done}
+                  </span>
+                </>
+              ),
+            },
+          ]}
+        />
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={onBackToCanvas}>
             <ArrowLeft className="h-3.5 w-3.5" />
@@ -72,6 +111,17 @@ export function DashboardScreen({
           effect make it the loader's a11y handoff target. */}
       <div ref={scrollRef} tabIndex={-1} className="flex-1 overflow-y-auto outline-none">
         <div className="mx-auto max-w-[1240px] px-4 py-7 pb-16 sm:px-8">
+          {tab === "tasks" ? (
+            <div className="report-reveal-in" style={{ animationDuration: "300ms" }}>
+              <TasksView
+                tasks={tasks}
+                onTasksChange={setTasks}
+                selectedId={selectedTaskId}
+                onSelect={setSelectedTaskId}
+              />
+            </div>
+          ) : (
+          <>
           {/* The Cotton Bond sheet the whole report sits on. */}
           <div className="report-sheet report-reveal-in">
             {/* Heading — a calm document title in place of the old clinical
@@ -91,13 +141,21 @@ export function DashboardScreen({
                 Your Prescription
               </h1>
               <p className="max-w-[60ch] text-[length:var(--text-body)] text-muted-foreground">
-                {`${prescribedCount} needs read from your session, and what we’d do about them — with the evidence behind each call.`}
+                {`${prescribedCount} needs read from your session, and what we would do about each one. Each call shows its evidence.`}
               </p>
             </header>
 
             {/* Report body. */}
             <div className="px-4 py-5 sm:px-8 sm:py-7">
-              <PrescriptionReport nodes={graph.nodes} preloaded={reportData} />
+              <PrescriptionReport
+                nodes={graph.nodes}
+                preloaded={reportData}
+                railTop={
+                  tasks.length > 0 ? (
+                    <NextStepsCard tasks={tasks} onOpenTasks={() => openTasks()} onOpenTask={openTasks} />
+                  ) : undefined
+                }
+              />
             </div>
 
             {/* Verification stamp — an honest control number from the real REF. */}
@@ -115,6 +173,8 @@ export function DashboardScreen({
           <div className="report-print-hide report-reveal-in mx-auto mt-6 max-w-[760px]">
             <ExitPoll />
           </div>
+          </>
+          )}
         </div>
       </div>
     </div>

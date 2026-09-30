@@ -1,11 +1,11 @@
 "use client";
 
-// Live tuning for the report sheet's "Vintage editorial paper" background — the
-// Figma shader (owner ustemberkay, id e4a07d9e…) reproduced as static, scoped
-// CSS (.report-sheet in globals.css). Every knob is a --report-paper-* custom
-// property; this panel writes them onto document.documentElement so the change
-// shows instantly on the report sheet, and offers Copy CSS to bake a tuned set
-// back into globals.css.
+// Live tuning for the shared "Vintage editorial paper" background: the Figma
+// shader (owner ustemberkay, id e4a07d9e…) reproduced as static CSS (.paper-bg
+// and .report-sheet in globals.css), used by both the canvas and the report.
+// Every knob is a --report-paper-* custom property. This panel writes them onto
+// document.documentElement so the change shows instantly on both screens, and
+// offers Copy CSS to bake a tuned set back into globals.css.
 //
 // Two entry points:
 //   • <PaperTextureControls value onChange /> — the presentational section,
@@ -41,17 +41,18 @@ export type PaperTexture = {
 };
 
 /**
- * Matches the inline defaults in .report-sheet, so first mount is a no-op.
+ * Matches the inline defaults in .paper-bg, so first mount is a no-op.
  * These are the values the user locked in from the Paper Texture Lab.
  */
 export const PAPER_TEXTURE_DEFAULTS: PaperTexture = {
-  base: "#f4f2eb",
-  stripe: "#c8943e", // rgb(200 148 62)
-  stripeOpacity: 0.12,
+  // Gray + white only (2026-09-28): the warm cream/amber set was retired.
+  base: "#f4f6f5",
+  stripe: "#8f9a95", // rgb(143 154 149)
+  stripeOpacity: 0.07,
   stripeWidth: 0.7,
   stripeSpace: 5,
   stripeAngle: 55,
-  vignette: 0.1,
+  vignette: 0,
   grainOpacity: 0.8,
   grainFreq: 1.5,
 };
@@ -60,7 +61,7 @@ function hexToChannels(hex: string): string {
   let h = hex.replace("#", "").trim();
   if (h.length === 3) h = h.split("").map((c) => c + c).join("");
   const n = parseInt(h, 16);
-  if (Number.isNaN(n)) return "200 148 62";
+  if (Number.isNaN(n)) return "143 154 149";
   return `${(n >> 16) & 255} ${(n >> 8) & 255} ${n & 255}`;
 }
 
@@ -89,7 +90,7 @@ export function applyPaperTexture(t: PaperTexture) {
   s.setProperty("--report-paper-grain-image", grainImage(t.grainFreq, t.grainOpacity));
 }
 
-/** The tuned set as a paste-ready block for globals.css's .report-sheet. */
+/** The tuned set as a paste-ready block for globals.css's .paper-bg. */
 export function paperTextureCss(t: PaperTexture): string {
   return [
     "/* Paper texture — tuned in the Experiments panel */",
@@ -116,7 +117,7 @@ export function usePaperTextureState() {
 // Strong ease-out (easing.dev) — press feedback that feels intentional.
 const PRESS = "transition-transform duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97]";
 
-function SliderRow({
+export function SliderRow({
   label,
   value,
   min,
@@ -214,7 +215,7 @@ export function PaperTextureControls({
         <div className="min-w-0">
           <p className="text-xs font-semibold text-foreground">Paper texture</p>
           <p className="text-[10px] leading-snug text-muted-foreground">
-            Report sheet only — your &ldquo;Vintage editorial paper&rdquo; shader, live.
+            Canvas and report together. Your &ldquo;Vintage editorial paper&rdquo; shader, live.
           </p>
         </div>
         <button

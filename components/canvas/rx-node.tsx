@@ -634,7 +634,7 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
             noteDraft={noteDraft}
             onNoteDraftChange={setNoteDraft}
             onSubmitNote={handleSubmitNoteClick}
-            notePlaceholder="e.g. none of these — priorities change mid-sprint from outside"
+            notePlaceholder="e.g. none of these. Priorities change mid-sprint from outside."
             downstreamCount={downstreamCount}
           />
         ) : null}
@@ -744,7 +744,7 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
                       }}
                       placeholder={
                         isChoice
-                          ? "e.g. none of these — priorities change mid-sprint from outside"
+                          ? "e.g. none of these. Priorities change mid-sprint from outside."
                           : "e.g. we're a team of two, 3 is too many"
                       }
                       rows={2}

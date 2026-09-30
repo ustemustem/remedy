@@ -21,7 +21,7 @@ async function mockContinuation(
   return {
     continuation: {
       title: "Take it one step further",
-      body: `Building on “${ctx.title}”: name who owns the next action and when they'll report back, so this doesn't stall after the good idea. (mock)`,
+      body: `Next step for “${ctx.title}”: name the owner of the next action and the date they report back. This keeps the idea from stalling. (mock)`,
     },
     usage: {},
   };

@@ -65,9 +65,13 @@ function ReportSection({
 export function PrescriptionReport({
   nodes,
   preloaded,
+  railTop,
 }: {
   nodes: CanvasNodeData[];
   preloaded?: ReportData | null;
+  /** Rendered first in the sticky rail, so it stays in view while the user
+   *  reads (the Next steps card). */
+  railTop?: ReactNode;
 }) {
   // Memoized on `nodes` specifically: deriveDashboardNeeds/deriveThemeEntries
   // build fresh arrays every call, and PrescriptionReport re-renders on every
@@ -173,6 +177,13 @@ export function PrescriptionReport({
      */
     <div className="report-grid grid gap-x-8 min-[1024px]:grid-cols-[minmax(0,1fr)_340px]">
       <div className="min-w-0">
+        {/* Under 1024px the rail drops below the document, so the rail-top
+            card would sit at the very bottom. Show it first instead. */}
+        {railTop && (
+          <div className="report-reveal-in mb-[22px] min-[1024px]:hidden" style={{ animationDelay: "40ms" }}>
+            {railTop}
+          </div>
+        )}
         <ReportSection index={1} title="What we understood" delayMs={60}>
           <div className="space-y-3">
             <UnderstoodSummary
@@ -243,6 +254,11 @@ export function PrescriptionReport({
 
       <aside className="report-rail min-w-0 mt-[22px] min-[1024px]:mt-0">
         <div className="min-[1024px]:sticky min-[1024px]:top-[22px]">
+          {railTop && (
+            <div className="report-reveal-in mb-[22px] hidden min-[1024px]:block" style={{ animationDelay: "100ms" }}>
+              {railTop}
+            </div>
+          )}
           <div className="report-reveal-in" style={{ animationDelay: "140ms" }}>
             <SectionHead title="How we read your situation" />
             <Card className="report-card-surface">

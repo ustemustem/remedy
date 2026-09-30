@@ -7,6 +7,10 @@ import { DashboardScreen } from "@/components/dashboard/dashboard-screen";
 import { ReportLoader } from "@/components/dashboard/report-loader";
 import { SessionSidebar } from "@/components/session-sidebar";
 import { ExperimentOverlay } from "@/components/experiment-overlay";
+import {
+  SURFACE_FIELD_DEFAULTS,
+  type SurfaceFieldSettings,
+} from "@/components/canvas/surface-field-background";
 import type { SourceStyle } from "@/components/canvas/source-style-context";
 import { getInitialCanvas } from "@/lib/mockAI";
 import { createSession, loadSessions, updateSession, type SessionRecord } from "@/lib/sessions";
@@ -51,9 +55,9 @@ export default function Home() {
   const SMOOTHING = 0.8;
   const sourceStyle: SourceStyle = "rail";
 
-  // The Experiments panel is a dev-only tuning tool used while building this —
-  // shelved for now. Flip to true to bring the flask panel back.
-  const SHOW_EXPERIMENTS = false;
+  // The Experiments panel is a dev-only tuning tool. It is back on to tune the
+  // shared paper background (canvas + report). Flip to false to shelve it again.
+  const SHOW_EXPERIMENTS = true;
 
   // Live experiments — mounted once here (not per-screen) so the same panel
   // and the same tuned values are reachable from chat, canvas, and dashboard
@@ -77,6 +81,10 @@ export default function Home() {
   // squircle's flatter curve. Independently tunable so the two can be dialed
   // back into visual alignment. See --radius-header in globals.css.
   const [headerRadius, setHeaderRadius] = useState(12);
+  // Canvas background experiment: React Flow's plain dot grid vs Surface Field,
+  // which bends around the cards (components/canvas/surface-field-background.tsx).
+  const [canvasBackground, setCanvasBackground] = useState<"dots" | "field">("field");
+  const [surfaceField, setSurfaceField] = useState<SurfaceFieldSettings>(SURFACE_FIELD_DEFAULTS);
   useEffect(() => {
     document.documentElement.style.setProperty("--radius-control", `${CONTROL_RADIUS}px`);
     document.documentElement.style.setProperty("--radius-card", `${CARD_RADIUS}px`);
@@ -196,6 +204,8 @@ export default function Home() {
         onReset={handleReset}
         softness={softness}
         sourceStyle={sourceStyle}
+        background={canvasBackground}
+        fieldSettings={surfaceField}
       />
     ) : step === "dashboard" ? (
       <DashboardScreen
@@ -243,6 +253,10 @@ export default function Home() {
           onTextQuoteChange={setTextQuote}
           linkWeight={linkWeight}
           onLinkWeightChange={setLinkWeight}
+          canvasBackground={canvasBackground}
+          onCanvasBackgroundChange={setCanvasBackground}
+          surfaceField={surfaceField}
+          onSurfaceFieldChange={setSurfaceField}
         />
       )}
     </div>

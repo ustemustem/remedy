@@ -18,6 +18,8 @@ import { FlaskConical, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { PaperTextureControls, usePaperTextureState } from "@/components/paper-texture-controls";
+import { SurfaceFieldControls } from "@/components/surface-field-controls";
+import type { SurfaceFieldSettings } from "@/components/canvas/surface-field-background";
 
 export function ExperimentOverlay({
   optionRadius,
@@ -34,6 +36,10 @@ export function ExperimentOverlay({
   onTextQuoteChange,
   linkWeight,
   onLinkWeightChange,
+  canvasBackground,
+  onCanvasBackgroundChange,
+  surfaceField,
+  onSurfaceFieldChange,
 }: {
   /** OptionPicker A/B/C choice-card radius (px) — see --radius-option in globals.css. */
   optionRadius: number;
@@ -58,6 +64,12 @@ export function ExperimentOverlay({
   /** Whether the dashboard's "View source"/"View report" links read as bolder. */
   linkWeight: "subtle" | "bold";
   onLinkWeightChange: (weight: "subtle" | "bold") => void;
+  /** Canvas background: React Flow's dot grid, or Surface Field (bends around cards). */
+  canvasBackground: "dots" | "field";
+  onCanvasBackgroundChange: (bg: "dots" | "field") => void;
+  /** Surface Field knobs: spacing, light, lines, clearing, interaction. */
+  surfaceField: SurfaceFieldSettings;
+  onSurfaceFieldChange: (s: SurfaceFieldSettings) => void;
 }) {
   const [open, setOpen] = useState(false);
   // Paper-texture state lives here (ExperimentOverlay is always mounted in
@@ -95,6 +107,39 @@ export function ExperimentOverlay({
 
       <div className="space-y-4 overflow-y-auto p-3">
         <div className="space-y-2">
+          <p className="text-xs font-semibold text-foreground">Canvas background</p>
+          <p className="text-[10px] text-muted-foreground">
+            Plain dot grid, or Surface Field: the grid bends around each card, follows a dragged
+            card, and lights up under the pointer.
+          </p>
+          <div className="flex gap-1">
+            {([["dots", "Dots"], ["field", "Surface field"]] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => onCanvasBackgroundChange(value)}
+                className={cn(
+                  "flex-1 rounded-md border px-1.5 py-1 text-[10px] font-medium transition-colors",
+                  canvasBackground === value
+                    ? "border-cta bg-cta/5 text-foreground"
+                    : "border-border text-muted-foreground hover:border-foreground/30"
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="border-t border-border pt-4">
+          <SurfaceFieldControls
+            value={surfaceField}
+            onChange={onSurfaceFieldChange}
+            active={canvasBackground === "field"}
+          />
+        </div>
+
+        <div className="space-y-2 border-t border-border pt-4">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold text-foreground">Option card radius</p>
             <span className="text-[11px] tabular-nums text-muted-foreground">{optionRadius}px</span>

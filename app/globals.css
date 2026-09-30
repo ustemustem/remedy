@@ -8,8 +8,10 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist);
-  --font-mono: var(--font-plex-mono);
-  --font-heading: var(--font-plex-mono);
+  /* Two faces app-wide: Geist for text, Courier Prime for labels, headings and
+     numbers. IBM Plex Mono was dropped so chat, canvas and report match. */
+  --font-mono: var(--font-courier);
+  --font-heading: var(--font-courier);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -80,7 +82,7 @@
   /* docs/CanvasRx_DESIGN_GUIDELINES.md Section 1: --muted (#E7EAE8) is the
      documented "Card backgrounds" color — distinct from --background so a
      card reads as a surface sitting on the canvas, not a hole in it. */
-  --card: hsl(140 6% 91%);
+  --card: hsl(140 6% 91%); /* gray cards on the near-white ground (surface standard) */
   --card-foreground: hsl(213 54% 14%);
   --popover: hsl(160 10% 96%);
   --popover-foreground: hsl(213 54% 14%);
@@ -212,6 +214,7 @@
    the translate while keeping the opacity fade in one place. */
 :root {
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 }
 .need-row-in {
   opacity: 0;
@@ -337,10 +340,12 @@
   /* ── Cotton Bond paper skin — REPORT SURFACE ONLY ─────────────────────
      Warm paper neutrals are declared only here, so the global cool palette
      (chat + canvas) is untouched. See docs/REPORT_PAPER_RESKIN.md. */
-  --paper: #f4f2eb; /* Cotton Bond sheet */
-  --paper-desk: #dedbd0; /* ground the sheet sits on */
-  --paper-card: #fbf8f0; /* card surface — warm off-white, not harsh #fff */
-  --paper-panel: #f5f1e7; /* inset panels (evidence benchmark) */
+  /* Gray + white only, no warm/yellow tones (surface standard, 2026-09-28):
+     the report uses the canvas's own ground and card colors. */
+  --paper: #f4f6f5; /* near-white, same as the global --background */
+  --paper-desk: #f4f6f5; /* fallback only: the ground paints .paper-bg */
+  --paper-card: hsl(140 6% 91%); /* card surface: same gray as canvas cards */
+  --paper-panel: hsl(140 6% 94%); /* inset panels (evidence benchmark) */
   --paper-hair: rgba(31, 72, 56, 0.13); /* warm hairline (brand-green tint) */
 
   /* Re-point the report's surface tokens at the paper values. Report cards
@@ -350,15 +355,8 @@
   --report-card: var(--paper-card);
   --background: var(--paper-desk);
   --border: var(--paper-hair);
-  background: var(--paper-desk);
-
-  /* The prescription surface's mono is Courier Prime (typewriter/Rx feel),
-     scoped here only — chat + canvas keep IBM Plex Mono. The @theme block uses
-     `inline`, so the font-mono / font-heading utilities compile to
-     var(--font-plex-mono); re-pointing that underlying var here swaps the font
-     for the whole report without touching the rest of the app. Loaded in
-     app/layout.tsx as --font-courier. */
-  --font-plex-mono: var(--font-courier);
+  /* The ground is the shared paper (.paper-bg, added to the element in
+     dashboard-screen.tsx), the same one the canvas pane uses. */
 }
 .report-card-surface {
   /* One soft, low shadow — a white card lifting off the cream sheet. Scoped
@@ -368,26 +366,23 @@
     0 4px 14px -8px rgba(31, 72, 56, 0.1);
 }
 
-/* The Cotton Bond sheet the whole report body sits on. */
-.report-sheet {
-  position: relative;
-  /* "Vintage editorial paper" — the Figma shader (owner ustemberkay, id
-     e4a07d9e…) reproduced as a STATIC, scoped, live-tunable background. The
-     shader manifest is isAnimated:false and its fragment never reads time, so a
-     live WebGPU/GL shader would spend the GPU redrawing one frozen frame. This
-     reproduces the same look — warm cream, faint amber diagonal pinstripes, fine
-     procedural grain (SVG feTurbulence), optional vignette — at zero runtime
-     cost, from the user's own art (no watermark/licensing). Colors sampled from
-     the Figma render. Report content cards paint opaque on top, so body text
-     never sits on texture; the texture reads in the letterhead, margins, section
-     gaps and footer, like real stock.
+/* "Vintage editorial paper": the ONE background shared by the canvas and the
+   report, so moving between them never changes the page. The Figma shader
+   (owner ustemberkay, id e4a07d9e…) reproduced as STATIC CSS: warm cream, faint
+   diagonal pinstripes, fine procedural grain (SVG feTurbulence), optional
+   vignette, at zero runtime cost. Cards paint opaque on top, so body text never
+   sits on texture.
 
-     Every knob is a --report-paper-* custom property with an inline default,
-     driven live by the Experiments panel's Paper texture section
-     (components/paper-texture-controls.tsx) and bakeable back here. The grain
-     LAYER is a whole url() the panel regenerates (feTurbulence baseFrequency +
-     rect opacity baked in); the fallback below is the default grain. */
-  background-color: var(--report-paper-base, var(--paper));
+   Every knob is a --report-paper-* custom property with an inline default,
+   driven live by the Experiments panel's Paper texture section
+   (components/paper-texture-controls.tsx) and bakeable back here. The grain
+   LAYER is a whole url() the panel regenerates (feTurbulence baseFrequency +
+   rect opacity baked in); the fallback below is the default grain.
+   Used by: the canvas pane (canvas-screen.tsx), the report ground
+   (.report-scope) and the report sheet (.report-sheet). */
+.paper-bg {
+  /* Neutral defaults: near-white base, gray stripes, no warm vignette. */
+  background-color: var(--report-paper-base, #f4f6f5);
   background-image:
     var(
       --report-paper-grain-image,
@@ -396,12 +391,12 @@
     radial-gradient(
       130% 120% at 50% 35%,
       transparent 52%,
-      rgb(70 50 22 / var(--report-paper-vignette, 0.1)) 100%
+      rgb(40 48 45 / var(--report-paper-vignette, 0)) 100%
     ),
     repeating-linear-gradient(
       var(--report-paper-stripe-angle, 55deg),
-      rgb(var(--report-paper-stripe-color, 200 148 62) / var(--report-paper-stripe-opacity, 0.12)) 0,
-      rgb(var(--report-paper-stripe-color, 200 148 62) / var(--report-paper-stripe-opacity, 0.12))
+      rgb(var(--report-paper-stripe-color, 143 154 149) / var(--report-paper-stripe-opacity, 0.07)) 0,
+      rgb(var(--report-paper-stripe-color, 143 154 149) / var(--report-paper-stripe-opacity, 0.07))
         var(--report-paper-stripe-width, 0.7px),
       transparent var(--report-paper-stripe-width, 0.7px),
       transparent var(--report-paper-stripe-space, 5px)
@@ -412,12 +407,15 @@
     cover,
     auto;
   background-blend-mode: soft-light, multiply, normal;
-  border: 1px solid var(--paper-hair);
-  border-radius: 3px;
-  box-shadow:
-    0 1px 1px rgba(0, 0, 0, 0.04),
-    0 8px 24px -6px rgba(31, 72, 56, 0.09),
-    0 22px 54px -14px rgba(0, 0, 0, 0.13);
+}
+
+/* Surface standard (2026-09-28): ONE ground and ONE card color on both
+   screens, gray + white only. Ground = the near-white paper (.paper-bg).
+   Cards = the canvas's gray, set once on :root (--card) and in .report-scope
+   (--paper-card). No layer sits between the ground and the cards: the report
+   sheet has no fill, edge or shadow, the same as the canvas pane. */
+.report-sheet {
+  position: relative;
 }
 /* Letterhead at the top of the sheet. */
 .report-letterhead {
@@ -483,6 +481,159 @@
     animation-timing-function: ease;
     animation-fill-mode: forwards;
   }
+}
+
+/* ── "Next steps" card (report rail) ────────────────────────────────────
+   The one inverted surface on the report: brand green on the cream sheet, so
+   the user's eye keeps landing on it. Its background moves, but slowly and
+   quietly: pinstripes (the paper's own motif) drift at constant speed, and a
+   soft sheen crosses the card every few seconds. Both are transform-only
+   pseudo-elements, so they run on the GPU. Reduced motion stops both. */
+.next-steps-card {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: var(--radius-card);
+  background: var(--primary);
+  color: var(--paper);
+  border: 1px solid rgba(244, 246, 245, 0.08);
+  box-shadow:
+    0 1px 2px rgba(31, 72, 56, 0.12),
+    0 10px 28px -12px rgba(31, 72, 56, 0.45);
+}
+/* Drifting pinstripes. 55deg stripes 7px apart repeat every 7/sin(55deg) =
+   8.545px along x, so moving 10 periods loops with no visible seam. */
+.next-steps-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 -90px 0 0;
+  z-index: -1;
+  background: repeating-linear-gradient(
+    55deg,
+    rgba(244, 246, 245, 0.06) 0,
+    rgba(244, 246, 245, 0.06) 1px,
+    transparent 1px,
+    transparent 7px
+  );
+  animation: ns-drift-kf 22s linear infinite;
+}
+@keyframes ns-drift-kf {
+  to {
+    transform: translateX(-85.45px);
+  }
+}
+/* Sheen: crosses once in ~1.5s, then rests. The rest is what keeps it calm. */
+.next-steps-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(
+    105deg,
+    transparent 35%,
+    rgba(244, 246, 245, 0.09) 50%,
+    transparent 65%
+  );
+  transform: translateX(-100%);
+  animation: ns-sheen-kf 7s var(--ease-in-out) 1.4s infinite;
+}
+@keyframes ns-sheen-kf {
+  0% {
+    transform: translateX(-100%);
+  }
+  22%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+/* The logo's orange dot, breathing next to the label. */
+.ns-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cta);
+  animation: ns-dot-kf 2.4s ease-in-out infinite;
+}
+@keyframes ns-dot-kf {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.8);
+  }
+}
+.ns-progress-track {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(244, 246, 245, 0.14);
+}
+.ns-progress-fill {
+  height: 100%;
+  background: var(--cta);
+  transform-origin: left;
+  transition: transform 600ms var(--ease-out);
+}
+/* The first task: a raised inner panel so it reads as "this one". */
+.ns-first {
+  border-radius: var(--radius-surface);
+  background: rgba(244, 246, 245, 0.07);
+  border: 1px solid rgba(244, 246, 245, 0.1);
+}
+.ns-press {
+  transition: transform 160ms var(--ease-out);
+}
+.ns-press:active {
+  transform: scale(0.97);
+}
+@media (prefers-reduced-motion: reduce) {
+  .next-steps-card::before,
+  .next-steps-card::after,
+  .ns-dot {
+    animation: none;
+  }
+  .ns-progress-fill {
+    transition: none;
+  }
+}
+
+/* Segmented switch (Report / My tasks, List / Board): one indicator that
+   slides under the active option instead of two backgrounds swapping. */
+.seg {
+  position: relative;
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  padding: 2px;
+  border-radius: var(--radius-control);
+  background: rgba(31, 72, 56, 0.07);
+  border: 1px solid var(--border);
+}
+.seg-indicator {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  border-radius: calc(var(--radius-control) - 2px);
+  background: var(--card);
+  box-shadow: 0 1px 2px rgba(31, 72, 56, 0.12);
+  transition: transform 200ms var(--ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .seg-indicator {
+    transition: none;
+  }
+}
+
+/* Task board: a card being dragged, and the column it would land in. */
+.task-card-dragging {
+  opacity: 0.45;
+}
+.task-column[data-over="true"] {
+  background: rgba(31, 72, 56, 0.06);
 }
 
 /* Canvas -> report loading transition (see docs handoff): the self-drawing

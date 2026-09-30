@@ -7,7 +7,7 @@
  */
 import { loadEnvLocal } from "./env";
 import { SEED_VENTS } from "./seed-vents";
-import { schemaValid } from "./checks";
+import { plainStyle, schemaValid } from "./checks";
 import {
   checkInitialGraphStructure,
   checkAskVsGuess,
@@ -65,6 +65,14 @@ async function main() {
         ...checkInitialGraphStructure(graph),
         checkRawHighlightsVerbatim(reading.highlights, vent.text),
         checkAskVsGuess(reading.inputQuality, vent.thin),
+        plainStyle([
+          reading.suggestion.title,
+          reading.suggestion.body,
+          reading.suggestion.question,
+          ...reading.suggestion.options.flatMap((o) => [o.title, o.subtitle]),
+          reading.counterArgument.title,
+          reading.counterArgument.body,
+        ]),
       ];
       results.push({
         id: vent.id,

@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { z } from "zod/v4";
+import { sanitizeDashes } from "./style";
 import type { Usage } from "./telemetry";
 
 // Server-only guard (security checklist A: hide API keys). This module reads
@@ -128,5 +129,6 @@ export async function parseStructured<T>(opts: {
   }
   const content = completion.choices[0]?.message?.content;
   if (!content) throw new Error("Model returned no content.");
-  return { result: opts.schema.parse(JSON.parse(stripFences(content))), usage: mapUsage(completion.usage) };
+  const parsed = sanitizeDashes(JSON.parse(stripFences(content)));
+  return { result: opts.schema.parse(parsed), usage: mapUsage(completion.usage) };
 }

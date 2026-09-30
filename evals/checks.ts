@@ -52,6 +52,31 @@ export function noUnsourcedNamedPerson(text: string, citations: string[]): Check
   };
 }
 
+/** Longest sentence the writing-style rules allow (prompts.ts writingStyleLines). */
+export const MAX_SENTENCE_WORDS = 20;
+
+/** Plain-language gate on user-facing strings: no em or en dash used as a pause,
+ *  no semicolon, and no sentence over MAX_SENTENCE_WORDS words. Informational,
+ *  not part of the structural gate. */
+export function plainStyle(texts: string[]): CheckResult {
+  const problems: string[] = [];
+  for (const t of texts) {
+    if (/—|\s–\s/.test(t)) problems.push(`dash in ${JSON.stringify(t.slice(0, 40))}`);
+    if (t.includes(";")) problems.push(`semicolon in ${JSON.stringify(t.slice(0, 40))}`);
+    for (const sentence of t.split(/(?<=[.!?])\s+/)) {
+      const words = sentence.split(/\s+/).filter(Boolean).length;
+      if (words > MAX_SENTENCE_WORDS) {
+        problems.push(`${words}-word sentence: ${JSON.stringify(sentence.slice(0, 40))}`);
+      }
+    }
+  }
+  return {
+    name: "plain-style",
+    pass: problems.length === 0,
+    detail: problems.length === 0 ? undefined : problems.join("; "),
+  };
+}
+
 /** Runs a batch and returns whether all passed, for a one-line eval summary. */
 export function summarize(results: CheckResult[]): { allPass: boolean; failed: string[] } {
   const failed = results.filter((r) => !r.pass).map((r) => r.name);

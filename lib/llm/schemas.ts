@@ -42,7 +42,7 @@ export const InitialReadingSchema = z.object({
       body: z
         .string()
         .describe(
-          "2-3 sentences. When inputQuality is 'thin', acknowledge what's missing rather than inventing specifics. No invented statistics."
+          "At most 2 short sentences. When inputQuality is 'thin', acknowledge what's missing rather than inventing specifics. No invented statistics."
         ),
       question: z
         .string()
@@ -59,17 +59,17 @@ export const InitialReadingSchema = z.object({
         .length(3)
         .describe("Exactly 3 candidate framings the user picks from."),
     })
-    .describe("The Suggestion heading — a recommendation with a framing choice."),
+    .describe("The Suggestion heading: a recommendation with a framing choice."),
   counterArgument: z
     .object({
       title: z.string().describe("A short title for the constructive counter-argument (<= 8 words)."),
       body: z
         .string()
         .describe(
-          "2-3 sentences of CONSTRUCTIVE critique: where the suggestion might not hold, or what to check first. Strengthens the suggestion, never demolishes it."
+          "At most 2 short sentences of CONSTRUCTIVE critique: where the suggestion might not hold, or what to check first. Strengthens the suggestion, never demolishes it."
         ),
     })
-    .describe("The Counter-argument heading — a constructive critique of the suggestion."),
+    .describe("The Counter-argument heading: a constructive critique of the suggestion."),
 });
 export type InitialReading = z.infer<typeof InitialReadingSchema>;
 
@@ -86,7 +86,7 @@ export const OptionResponseSchema = z.object({
       title: z.string().describe("A short, imperative title for the next step (<= 8 words)."),
       body: z
         .string()
-        .describe("2-3 sentences building concretely on the option the user picked. No invented statistics."),
+        .describe("At most 2 short sentences building concretely on the option the user picked. No invented statistics."),
     })
     .describe("The next recommendation, continuing the picked option's direction."),
   counterArgument: z
@@ -94,7 +94,7 @@ export const OptionResponseSchema = z.object({
       title: z.string().describe("A short title for the constructive counter-argument (<= 8 words)."),
       body: z
         .string()
-        .describe("2-3 sentences of constructive critique of THIS recommendation: what to check first, where it might not hold."),
+        .describe("At most 2 short sentences of constructive critique of THIS recommendation: what to check first, where it might not hold."),
     })
     .nullable()
     .describe("A constructive counter-argument, or null when there is no genuinely useful one to make."),
@@ -110,7 +110,7 @@ export const ContinuationSchema = z.object({
   title: z.string().describe("A short, imperative title for the next step (<= 8 words)."),
   body: z
     .string()
-    .describe("2-3 sentences carrying this direction one concrete step further. No invented statistics."),
+    .describe("At most 2 short sentences carrying this direction one concrete step further. No invented statistics."),
 });
 export type Continuation = z.infer<typeof ContinuationSchema>;
 
@@ -132,7 +132,7 @@ export type NoteIntentResult = z.infer<typeof NoteIntentSchema>;
 /** Refine-in-place on a plain card, or a branched new card — both a title+body. */
 export const CardContentSchema = z.object({
   title: z.string().describe("A short, imperative title (<= 8 words)."),
-  body: z.string().describe("2-3 plain sentences. No invented statistics."),
+  body: z.string().describe("At most 2 short, plain sentences. No invented statistics."),
 });
 export type CardContent = z.infer<typeof CardContentSchema>;
 
@@ -239,7 +239,7 @@ export const GroundedEvidenceSchema = z.object({
           .describe("app = a tool/app; community = a discussion/write-up (Reddit/forum/blog); role = a LinkedIn role-search."),
         label: z.string().describe("Short source label (<= 6 words)."),
         detail: z.string().describe("One line on why this source supports the recommendation."),
-        url: z.string().describe("The source URL — MUST be copied from the provided list of real URLs."),
+        url: z.string().describe("The source URL. It MUST be copied from the provided list of real URLs."),
       })
     )
     .max(3)

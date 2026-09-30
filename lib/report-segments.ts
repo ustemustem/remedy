@@ -93,13 +93,20 @@ function refFor(n: DashboardNeed): SummarySegment {
 function text(content: string): SummarySegment {
   return { type: "text", content };
 }
+/** Follows a need ref with the user's own words, closing the ref's sentence
+ *  first unless its title already ends one. */
+function inYourWords(n: DashboardNeed): string {
+  const closer = /[.!?]$/.test(baseTitle(n.node.title).trim()) ? "" : ".";
+  const quote = n.quote.trim().replace(/[.!?]+$/, "");
+  return `${closer} In your words: “${quote}”.`;
+}
 
 /** Deterministic "what we understood" summary from real derived needs — the
  *  error/offline fallback for getUnderstoodSummary (was mockAI's template). */
 export function fallbackUnderstoodSummary(needs: DashboardNeed[]): SummarySegment[] {
   if (needs.length === 0) return [];
   if (needs.length === 1) {
-    return [text("You came in with one clear need: "), refFor(needs[0]), text(` — ${needs[0].quote}`)];
+    return [text("You came in with one clear need: "), refFor(needs[0]), text(inYourWords(needs[0]))];
   }
   if (needs.length === 2) {
     return [text("You came in with two needs: "), refFor(needs[0]), text(" and "), refFor(needs[1]), text(".")];
@@ -108,7 +115,7 @@ export function fallbackUnderstoodSummary(needs: DashboardNeed[]): SummarySegmen
   const segments: SummarySegment[] = [
     text(`You came in with ${needs.length} needs. The one shaping everything else was `),
     refFor(first),
-    text(` — ${first.quote}. Around it sat `),
+    text(`${inYourWords(first)} Around it sat `),
   ];
   rest.forEach((n, i) => {
     segments.push(refFor(n));

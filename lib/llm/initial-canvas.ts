@@ -38,7 +38,7 @@ async function mockInitialReading(
     highlights,
     suggestion: {
       title: "Name the real bottleneck first",
-      body: "Get everyone to agree on the single point where things actually break before fixing anything — a shared, specific diagnosis stops three people solving three different problems. (Mock mode — no model was called.)",
+      body: "Agree on the one point where things break before you fix anything. A shared diagnosis stops three people from solving three different problems. (Mock mode. No model was called.)",
       question: "Where do you want to start?",
       options: [
         { title: "Map the current flow", subtitle: "Write down each step end to end and mark where it stalls." },
@@ -48,7 +48,7 @@ async function mockInitialReading(
     },
     counterArgument: {
       title: "Don't over-diagnose",
-      body: "Mapping everything can become its own delay. If one cause is already obvious, run a small fix this week and learn from it instead of studying the problem for a month. (Mock mode.)",
+      body: "A full map can become its own delay. If one cause is already clear, test a small fix this week and learn from it. (Mock mode.)",
     },
   };
   return { reading, usage: {} };

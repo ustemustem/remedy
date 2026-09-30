@@ -67,8 +67,8 @@ export async function readNoteContent(
       content: {
         title: branch ? "A new direction from your note" : "Adjusted to your note",
         body:
-          `Taking your note (“${ctx.note}”) into account, here's ${branch ? "a different angle on" : "a tightened version of"} ` +
-          `“${ctx.parentTitle}” — shaped so it addresses that directly. (mock)`,
+          `This is ${branch ? "a different angle on" : "a tighter version of"} “${ctx.parentTitle}”. ` +
+          `It answers your note directly: “${ctx.note}”. (mock)`,
       },
       usage: {},
     };

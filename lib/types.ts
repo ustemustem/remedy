@@ -101,6 +101,10 @@ export interface ReportData {
   summary: SummarySegment[];
   readout: ReadoutSegment[];
   fits: FitSignal[];
+  /** Grounded evidence per need. Not part of the loader's wait: it arrives
+   *  after the report opens and is then saved here, so a saved report never
+   *  runs web_search again. */
+  evidence?: EvidenceExample[][];
 }
 
 export interface CanvasNodeData {

@@ -5,6 +5,7 @@
 
 import type { CanvasGraph, Step } from "./types";
 import type { Industry } from "./examplePrompts";
+import type { SavedReport } from "./reports";
 
 export interface SessionRecord {
   id: string;
@@ -13,6 +14,17 @@ export interface SessionRecord {
   step: Step;
   updatedAt: number;
   industry: Industry;
+  /** Set when the user renames the session. The sidebar falls back to chatText. */
+  title?: string;
+  /** Saved report versions, all issues. Absent on sessions saved before reports were stored. */
+  reports?: SavedReport[];
+  /** When the user pinned it. Pinned sessions list first, newest pin on top,
+   *  and are never evicted by the MAX_SESSIONS cap. */
+  pinnedAt?: number;
+}
+
+export function sessionLabel(session: SessionRecord): string {
+  return session.title?.trim() || session.chatText || "Untitled session";
 }
 
 // Mock context tagging — same keyword-scan spirit as thoughtTriggers.ts, no
@@ -62,7 +74,13 @@ function readAll(): SessionRecord[] {
 
 function writeAll(sessions: SessionRecord[]) {
   if (typeof window === "undefined") return;
-  const sorted = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_SESSIONS);
+  // The cap applies to unpinned sessions only: a pin is a promise to keep it.
+  const pinned = sessions.filter((s) => s.pinnedAt);
+  const recent = sessions
+    .filter((s) => !s.pinnedAt)
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, MAX_SESSIONS);
+  const sorted = [...pinned, ...recent];
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sorted));
   } catch {
@@ -94,11 +112,48 @@ export function updateSession(
   graph: CanvasGraph,
   step: Step
 ): SessionRecord | null {
+  return patchSession(id, () => ({ graph, step }));
+}
+
+/** `touch: false` keeps updatedAt, so the session keeps its place in the sidebar. */
+function patchSession(
+  id: string,
+  patch: (s: SessionRecord) => Partial<SessionRecord>,
+  { touch = true }: { touch?: boolean } = {}
+): SessionRecord | null {
   const all = readAll();
   const index = all.findIndex((s) => s.id === id);
   if (index === -1) return null;
-  const updated: SessionRecord = { ...all[index], graph, step, updatedAt: Date.now() };
+  const updated: SessionRecord = {
+    ...all[index],
+    ...patch(all[index]),
+    updatedAt: touch ? Date.now() : all[index].updatedAt,
+  };
   all[index] = updated;
   writeAll(all);
   return updated;
+}
+
+/** An empty title clears the rename, so the sidebar shows the vent again. */
+export function renameSession(id: string, title: string): SessionRecord | null {
+  return patchSession(id, () => ({ title: title.trim() || undefined }), { touch: false });
+}
+
+export function setPinned(id: string, pinned: boolean): SessionRecord | null {
+  return patchSession(id, () => ({ pinnedAt: pinned ? Date.now() : undefined }), { touch: false });
+}
+
+export function addReport(id: string, report: SavedReport): SessionRecord | null {
+  return patchSession(id, (s) => ({ reports: [...(s.reports ?? []), report] }));
+}
+
+/** Saves later changes to one version: task edits, evidence that arrived after it opened. */
+export function updateReport(
+  id: string,
+  reportId: string,
+  patch: Partial<Pick<SavedReport, "tasks" | "data">>
+): SessionRecord | null {
+  return patchSession(id, (s) => ({
+    reports: (s.reports ?? []).map((r) => (r.id === reportId ? { ...r, ...patch } : r)),
+  }));
 }

@@ -4,30 +4,43 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { deriveDashboardNeeds } from "@/lib/graph";
-import { buildMockTasks } from "@/lib/tasks-mock";
 import { progress, type Task } from "@/lib/tasks";
+import type { SavedReport } from "@/lib/reports";
+import type { EvidenceExample } from "@/lib/types";
 import { NextStepsCard } from "@/components/tasks/next-steps-card";
 import { TasksView } from "@/components/tasks/tasks-view";
 import { Segmented } from "@/components/tasks/segmented";
 import { PrescriptionReport } from "./prescription-report";
 import { ExitPoll } from "./exit-poll";
-import type { CanvasGraph, ReportData } from "@/lib/types";
+import { ReportPicker } from "./report-picker";
 
 type Tab = "report" | "tasks";
 
 export function DashboardScreen({
-  graph,
+  report,
+  reports,
+  outdated,
   sessionId,
-  reportData,
+  onSelectReport,
+  onTasksChange,
+  onEvidence,
   onBackToCanvas,
   onReset,
 }: {
-  graph: CanvasGraph;
+  /** The saved version on screen. It renders from its own canvas snapshot and
+   *  saved report data, so opening it never re-runs the report. */
+  report: SavedReport;
+  /** Every saved version in the session, for the issue / version picker. */
+  reports: SavedReport[];
+  /** The canvas changed after this issue's latest version was built. */
+  outdated: boolean;
   /** The real session id — becomes the letterhead REF / footer control number. */
   sessionId?: string | null;
-  /** Fast report seams pre-loaded behind the loader (Phase 3d). Null on the
-   *  session-resume path, where the report self-fetches its sections. */
-  reportData?: ReportData | null;
+  onSelectReport: (reportId: string) => void;
+  /** Saves task edits with this version. */
+  onTasksChange: (tasks: Task[]) => void;
+  /** Saves evidence with this version once it arrives. */
+  onEvidence: (evidence: EvidenceExample[][]) => void;
   /** Returns to the canvas without resetting — the graph is untouched by Finalize. */
   onBackToCanvas: () => void;
   onReset: () => void;
@@ -41,11 +54,15 @@ export function DashboardScreen({
     scrollRef.current?.focus();
   }, []);
 
-  // MOCK PASS: tasks are built from the kept needs and live in memory only.
-  // The real pass generates them while the report loads and saves them with
-  // the session.
+  // MOCK PASS: tasks are built from the kept needs when the version is built
+  // (page.tsx) and saved with it. The real pass generates them with an LLM.
+  const graph = report.graph;
   const [tab, setTab] = useState<Tab>("report");
-  const [tasks, setTasks] = useState<Task[]>(() => buildMockTasks(deriveDashboardNeeds(graph.nodes)));
+  const [tasks, setTasksState] = useState<Task[]>(report.tasks);
+  const setTasks = (next: Task[]) => {
+    setTasksState(next);
+    onTasksChange(next);
+  };
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const openTasks = (taskId: string | null = null) => {
     setSelectedTaskId(taskId);
@@ -56,15 +73,14 @@ export function DashboardScreen({
 
   // Real, honest letterhead values — derived from the actual session/graph,
   // never fabricated (see docs/REPORT_PAPER_RESKIN.md, requirement 3).
-  // DashboardScreen only mounts after a client-side step change (page.tsx is a
-  // client component that starts on "chat"), so it never server-renders in the
-  // real flow — computing the date at render is safe and hydration-neutral.
-  const issued = new Date().toLocaleDateString("en-US", {
+  // The date the version was built, not today: a saved report keeps its date.
+  const issued = new Date(report.createdAt).toLocaleDateString("en-US", {
     day: "2-digit",
     month: "short",
     year: "numeric",
   });
   const prescribedCount = deriveDashboardNeeds(graph.nodes).length;
+  const isOlder = reports.some((r) => r.issueId === report.issueId && r.version > report.version);
   const ref = sessionId
     ? sessionId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8).toUpperCase()
     : null;
@@ -73,8 +89,22 @@ export function DashboardScreen({
     <div className="report-scope paper-bg flex h-full flex-col">
       {/* Screen chrome — sits above the sheet, hidden in print/export. */}
       <header className="report-print-hide report-reveal-in flex shrink-0 items-center justify-between border-b border-border px-4 py-2.5">
-        {/* eslint-disable-next-line @next/next/no-img-element -- static local SVG, no optimization needed */}
-        <img src="/logo.svg" alt="Remedy" className="h-7 w-auto" />
+        <div className="flex items-center gap-3">
+          {/* eslint-disable-next-line @next/next/no-img-element -- static local SVG, no optimization needed */}
+          <img src="/logo.svg" alt="Remedy" className="h-7 w-auto" />
+          <ReportPicker report={report} reports={reports} onSelect={onSelectReport} />
+          {isOlder ? (
+            <span className="font-mono text-[length:var(--text-meta)] uppercase tracking-wide text-muted-foreground">
+              Older version
+            </span>
+          ) : (
+            outdated && (
+              <span className="font-mono text-[length:var(--text-meta)] uppercase tracking-wide text-muted-foreground">
+                Canvas changed since this version
+              </span>
+            )
+          )}
+        </div>
         <Segmented
           label="Report sections"
           value={tab}
@@ -149,7 +179,8 @@ export function DashboardScreen({
             <div className="px-4 py-5 sm:px-8 sm:py-7">
               <PrescriptionReport
                 nodes={graph.nodes}
-                preloaded={reportData}
+                preloaded={report.data}
+                onEvidence={onEvidence}
                 railTop={
                   tasks.length > 0 ? (
                     <NextStepsCard tasks={tasks} onOpenTasks={() => openTasks()} onOpenTask={openTasks} />

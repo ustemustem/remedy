@@ -13,7 +13,26 @@ import {
 } from "@/components/canvas/surface-field-background";
 import type { SourceStyle } from "@/components/canvas/source-style-context";
 import { getInitialCanvas } from "@/lib/mockAI";
-import { createSession, loadSessions, updateSession, type SessionRecord } from "@/lib/sessions";
+import {
+  addReport,
+  createSession,
+  loadSessions,
+  renameSession,
+  setPinned,
+  updateReport,
+  updateSession,
+  type SessionRecord,
+} from "@/lib/sessions";
+import {
+  carryTasks,
+  getIssue,
+  isOutdated,
+  latestReport,
+  newReportId,
+  type SavedReport,
+} from "@/lib/reports";
+import { deriveDashboardNeeds } from "@/lib/graph";
+import { buildMockTasks } from "@/lib/tasks-mock";
 import { loadingCycleMs, withMinDuration } from "@/lib/timing";
 import type { CanvasGraph, ReportData, Step } from "@/lib/types";
 
@@ -32,10 +51,9 @@ export default function Home() {
   // be saved mid-transition. `step` stays "canvas" until the loader's
   // onReady fires, at which point it flips straight to "dashboard".
   const [transitioning, setTransitioning] = useState(false);
-  // The fast report seams, orchestrated by generateReport behind the loader
-  // (Phase 3d) and handed to DashboardScreen so the report renders without
-  // re-fetching. Null on the session-resume path — the report self-fetches then.
-  const [reportData, setReportData] = useState<ReportData | null>(null);
+  // Reports are saved with the session (lib/reports.ts). The loader runs only
+  // to build a new version; opening a saved one reads it from storage.
+  const [activeReportId, setActiveReportId] = useState<string | null>(null);
 
   // Sessions live in localStorage — only readable after mount.
   useEffect(() => {
@@ -113,6 +131,18 @@ export default function Home() {
   }, [linkWeight]);
   const softness = useMemo(() => ({ radius: CARD_RADIUS, smoothing: SMOOTHING }), []);
 
+  const session = sessions.find((s) => s.id === sessionId) ?? null;
+  const reports = useMemo(() => session?.reports ?? [], [session]);
+  const issue = getIssue(graph);
+  const latest = issue ? latestReport(reports, issue.id) : null;
+  const reportStatus = !latest ? "none" : isOutdated(latest, graph) ? "outdated" : "current";
+  const activeReport = reports.find((r) => r.id === activeReportId) ?? null;
+
+  /** Puts a freshly saved record at the top of the sidebar list. */
+  function applySession(updated: SessionRecord | null) {
+    if (updated) setSessions((prev) => [updated, ...prev.filter((s) => s.id !== updated.id)]);
+  }
+
   async function handleChatSubmit(text: string) {
     setLoading(true);
     setError(null);
@@ -151,35 +181,87 @@ export default function Home() {
     [sessionId]
   );
 
+  function openReport(report: SavedReport) {
+    setActiveReportId(report.id);
+    setStep("dashboard");
+    if (sessionId) applySession(updateSession(sessionId, graph, "dashboard"));
+  }
+
+  // "View report" on the card at the end of a path. Opens the saved report
+  // when the canvas hasn't changed since; otherwise builds a new version.
   function handleFinalize(finalGraph: CanvasGraph) {
-    // Session persistence isn't gated on the loading transition — only the
-    // visual step change waits for ReportLoader's onReady.
     setGraph(finalGraph);
-    setReportData(null); // fresh run; the loader fills this on onReady
-    setTransitioning(true);
-    if (!sessionId) return;
-    const updated = updateSession(sessionId, finalGraph, "dashboard");
-    if (updated) {
-      setSessions((prev) => [updated, ...prev.filter((s) => s.id !== updated.id)]);
+    const finalIssue = getIssue(finalGraph);
+    const last = finalIssue ? latestReport(reports, finalIssue.id) : null;
+    if (last && !isOutdated(last, finalGraph)) {
+      openReport(last);
+      return;
     }
+    setTransitioning(true);
   }
 
   function handleReportReady(data: ReportData) {
-    setReportData(data);
+    const builtIssue = getIssue(graph);
+    if (!builtIssue) return;
+    const previous = latestReport(reports, builtIssue.id);
+    const freshTasks = buildMockTasks(deriveDashboardNeeds(graph.nodes));
+    const report: SavedReport = {
+      id: newReportId(),
+      issueId: builtIssue.id,
+      issueTitle: builtIssue.title,
+      version: (previous?.version ?? 0) + 1,
+      data,
+      graph,
+      tasks: previous ? carryTasks(previous.tasks, freshTasks) : freshTasks,
+      createdAt: Date.now(),
+    };
+    if (sessionId) {
+      addReport(sessionId, report);
+      applySession(updateSession(sessionId, graph, "dashboard"));
+    }
+    // Storage can fail (quota, private mode); the report still opens this visit.
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === sessionId && !s.reports?.some((r) => r.id === report.id)
+          ? { ...s, reports: [...(s.reports ?? []), report] }
+          : s
+      )
+    );
+    setActiveReportId(report.id);
     setTransitioning(false);
     setStep("dashboard");
   }
 
+  function handleReportChange(reportId: string, patch: Partial<Pick<SavedReport, "tasks" | "data">>) {
+    if (sessionId) updateReport(sessionId, reportId, patch);
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === sessionId
+          ? { ...s, reports: (s.reports ?? []).map((r) => (r.id === reportId ? { ...r, ...patch } : r)) }
+          : s
+      )
+    );
+  }
+
   function handleBackToCanvas() {
-    setReportData(null);
     setStep("canvas");
+  }
+
+  function handlePin(id: string, pinned: boolean) {
+    const updated = setPinned(id, pinned);
+    if (updated) setSessions((prev) => prev.map((s) => (s.id === id ? updated : s)));
+  }
+
+  function handleRename(id: string, title: string) {
+    const updated = renameSession(id, title);
+    if (updated) setSessions((prev) => prev.map((s) => (s.id === id ? updated : s)));
   }
 
   function handleReset() {
     setGraph(EMPTY_GRAPH);
     setSessionId(null);
     setError(null);
-    setReportData(null);
+    setActiveReportId(null);
     setTransitioning(false);
     setStep("chat");
   }
@@ -187,33 +269,51 @@ export default function Home() {
   function handleSelectSession(session: SessionRecord) {
     setSessionId(session.id);
     setGraph(session.graph);
-    setReportData(null); // resumed session → the report self-fetches its sections
-    setTransitioning(false);
-    setStep(session.step === "chat" ? "chat" : session.step);
     setError(null);
+    const saved = [...(session.reports ?? [])].sort((a, b) => b.createdAt - a.createdAt)[0];
+    setActiveReportId(saved?.id ?? null);
+    if (session.step === "dashboard" && !saved) {
+      // Saved before reports were stored: build its first version once.
+      setStep("canvas");
+      setTransitioning(true);
+      return;
+    }
+    setTransitioning(false);
+    setStep(session.step);
   }
 
+  // A dashboard step with no saved report to show (e.g. storage was cleared)
+  // falls back to the canvas, where the end card can build one.
   const content = transitioning ? (
       <ReportLoader graph={graph} onReady={handleReportReady} />
-    ) : step === "canvas" ? (
+    ) : step === "dashboard" && activeReport ? (
+      <DashboardScreen
+        key={activeReport.id}
+        report={activeReport}
+        reports={reports}
+        outdated={isOutdated(latestReport(reports, activeReport.issueId) ?? activeReport, graph)}
+        sessionId={sessionId}
+        onSelectReport={(id) => setActiveReportId(id)}
+        onTasksChange={(tasks) => handleReportChange(activeReport.id, { tasks })}
+        onEvidence={(evidence) =>
+          handleReportChange(activeReport.id, { data: { ...activeReport.data, evidence } })
+        }
+        onBackToCanvas={handleBackToCanvas}
+        onReset={handleReset}
+      />
+    ) : step !== "chat" ? (
       <CanvasScreen
         key={sessionId ?? "new"}
         initialGraph={graph}
         onGraphChange={handleGraphChange}
         onFinalize={handleFinalize}
+        reportStatus={reportStatus}
+        onOpenReport={() => latest && openReport(latest)}
         onReset={handleReset}
         softness={softness}
         sourceStyle={sourceStyle}
         background={canvasBackground}
         fieldSettings={surfaceField}
-      />
-    ) : step === "dashboard" ? (
-      <DashboardScreen
-        graph={graph}
-        sessionId={sessionId}
-        reportData={reportData}
-        onBackToCanvas={handleBackToCanvas}
-        onReset={handleReset}
       />
     ) : (
       <>
@@ -234,6 +334,8 @@ export default function Home() {
           activeId={sessionId}
           onSelect={handleSelectSession}
           onNewSession={handleReset}
+          onRename={handleRename}
+          onPin={handlePin}
         />
       </div>
       <div className="min-w-0 flex-1 overflow-hidden">{content}</div>

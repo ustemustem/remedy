@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { deriveDashboardFeed, deriveDashboardNeeds, deriveThemeEntries } from "@/lib/graph";
 import { getFitSignals, getGroundedEvidence } from "@/lib/mockAI";
@@ -65,10 +65,13 @@ function ReportSection({
 export function PrescriptionReport({
   nodes,
   preloaded,
+  onEvidence,
   railTop,
 }: {
   nodes: CanvasNodeData[];
   preloaded?: ReportData | null;
+  /** Called once when evidence arrives, so the caller can save it with the report. */
+  onEvidence?: (evidence: EvidenceExample[][]) => void;
   /** Rendered first in the sticky rail, so it stays in view while the user
    *  reads (the Next steps card). */
   railTop?: ReactNode;
@@ -107,21 +110,32 @@ export function PrescriptionReport({
   }, [needs, vent, preloaded]);
   // Grounded evidence (Phase 3b): one call per need, in parallel with fit. Loads
   // per-card (non-gating) since web_search is slow; omitted on failure.
-  const [evidence, setEvidence] = useState<EvidenceExample[][] | null>(null);
+  // Saved evidence (a report opened before) is used as is, with no new search.
+  const savedEvidence = preloaded?.evidence;
+  const [evidence, setEvidence] = useState<EvidenceExample[][] | null>(savedEvidence ?? null);
   const [trackedForEvidence, setTrackedForEvidence] = useState(needs);
-  if (needs !== trackedForEvidence) {
+  if (!savedEvidence && needs !== trackedForEvidence) {
     setTrackedForEvidence(needs);
     setEvidence(null);
   }
+  const onEvidenceRef = useRef(onEvidence);
   useEffect(() => {
+    onEvidenceRef.current = onEvidence;
+  }, [onEvidence]);
+  useEffect(() => {
+    if (savedEvidence) return;
     let cancelled = false;
     getGroundedEvidence(vent, needs).then((r) => {
-      if (!cancelled) setEvidence(r);
+      if (cancelled) return;
+      setEvidence(r);
+      // An all-empty result is also what a failed call returns, so it is not
+      // saved: the next open tries again.
+      if (r.some((list) => list.length > 0)) onEvidenceRef.current?.(r);
     });
     return () => {
       cancelled = true;
     };
-  }, [needs, vent]);
+  }, [needs, vent, savedEvidence]);
 
   const needsEnriched = useMemo(
     () => needs.map((n, i) => ({ ...n, fit: fits?.[i], evidence: evidence?.[i] })),

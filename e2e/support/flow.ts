@@ -11,19 +11,28 @@ export async function submitVent(page: Page, vent = SAMPLE_VENT) {
   await page.getByRole("button", { name: /send/i }).click();
 }
 
-/** Full journey to the report: submit, accept the counter-argument (an
- *  accept-and-continue that marks a node selected, so the report has a need),
- *  then Finalize. Resolves once the report heading is visible. */
+/** The end-of-path card's "View report" (inside the canvas), not the header's. */
+export function endCardViewReport(page: Page) {
+  // A real <button>: React Flow gives the card wrapper role="button" too, and
+  // its accessible name includes the same text.
+  return page.locator(".react-flow button", { hasText: /view report/i });
+}
+
+/** Full journey to the report: submit, then keep accepting the newest
+ *  proposal ("Prefer this option", which also marks it selected) until the
+ *  path reaches its end card, and open the report from there. The header's
+ *  "View report" stays off until a first report exists. Resolves once the
+ *  report heading is visible. */
 export async function reachReport(page: Page, vent = SAMPLE_VENT) {
   await submitVent(page, vent);
-  await page.getByRole("button", { name: /prefer this option/i }).first().click();
-  await page.getByRole("button", { name: /finalize/i }).click();
-  // Finalizing with a single path and no feedback pops a confirmation dialog;
-  // accept it if it appears (and tolerate its absence if the rule changes).
-  await page
-    .getByRole("button", { name: /finalize anyway/i })
-    .click({ timeout: 5000 })
-    .catch(() => {});
+  for (let i = 0; i < 8; i++) {
+    if (await endCardViewReport(page).isVisible()) break;
+    await page.getByRole("button", { name: /prefer this option/i }).last().click();
+    await endCardViewReport(page)
+      .waitFor({ timeout: 4000 })
+      .catch(() => {});
+  }
+  await endCardViewReport(page).click();
   // level 1 = the report title <h1>; a Section 02 <h2> "Your prescription" also
   // exists, so disambiguate by heading level.
   await expect(page.getByRole("heading", { level: 1, name: /your prescription/i })).toBeVisible();

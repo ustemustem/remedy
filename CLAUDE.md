@@ -64,6 +64,16 @@ canvas. `CanvasScreen` is remounted with `key={sessionId}` when switching sessio
 `initialGraph` prop is only consulted once (by `useState`) — without the key, switching sessions
 while already on the canvas would silently keep the old session's in-memory state.
 
+Reports are saved too (`lib/reports.ts`, `SessionRecord.reports`): each version stores its
+report data, grounded evidence, tasks, and a snapshot of the canvas it was built from, keyed
+by issue (today the source node's id). A report is built only from the end-of-path card's
+"View report", and only when there is no version yet or the canvas changed since
+(`isOutdated`); otherwise it opens from storage with no loader and no API calls. The canvas
+header's "View report" is disabled until a first version exists. A new version keeps the
+user's task progress (`carryTasks`). Each sidebar item has a three-dot menu (Rename,
+Pin/Unpin); pinned sessions (`SessionRecord.pinnedAt`) list under "Pinned" above "Recents"
+and are exempt from the 20-session cap.
+
 ### Session sidebar + search overlay
 
 `components/session-sidebar.tsx` renders as a persistent left rail across all three steps

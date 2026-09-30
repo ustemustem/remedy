@@ -12,7 +12,7 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import { INDUSTRIES, type Industry } from "@/lib/examplePrompts";
-import type { SessionRecord } from "@/lib/sessions";
+import { sessionLabel, type SessionRecord } from "@/lib/sessions";
 
 const DATE_FILTERS = ["Today", "This week", "This month", "All"] as const;
 type DateFilter = (typeof DATE_FILTERS)[number];
@@ -106,10 +106,10 @@ export function SessionSearchOverlay({
             {filtered.map((session) => (
               <CommandItem
                 key={session.id}
-                value={`${session.chatText || "untitled"} ${session.id}`}
+                value={`${sessionLabel(session)} ${session.chatText} ${session.id}`}
                 onSelect={() => handleSelect(session)}
               >
-                {session.chatText || "Untitled session"}
+                {sessionLabel(session)}
               </CommandItem>
             ))}
           </CommandGroup>

@@ -24,16 +24,8 @@ import ReactFlow, {
   type NodeChange,
 } from "reactflow";
 import "reactflow/dist/style.css";
-import { RotateCcw, Send } from "lucide-react";
+import { FileText, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { RxNode, type RxNodeData } from "./rx-node";
 import { RxEdge } from "./rx-edge";
 import { GroupFrameNode, type GroupFrameNodeData } from "./group-frame-node";
@@ -42,6 +34,8 @@ import { SoftnessProvider } from "./softness-context";
 import { SourceStyleProvider, type SourceStyle } from "./source-style-context";
 import { SurfaceFieldBackground, type SurfaceFieldSettings } from "./surface-field-background";
 import { layoutNodes } from "@/lib/layout";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { CanvasDock } from "./canvas-dock";
 import {
   getOptionResponse,
   getPreferredContinuation,
@@ -564,6 +558,8 @@ export function CanvasScreen({
   initialGraph,
   onGraphChange,
   onFinalize,
+  reportStatus,
+  onOpenReport,
   onReset,
   softness,
   sourceStyle,
@@ -573,7 +569,13 @@ export function CanvasScreen({
   initialGraph: CanvasGraph;
   /** Fires whenever the graph changes — lets the caller autosave to a session. */
   onGraphChange?: (graph: CanvasGraph) => void;
+  /** The end-of-path card's "View report": opens the saved report, or builds a
+   *  new version when there is none yet or the canvas changed since. */
   onFinalize: (graph: CanvasGraph) => void;
+  /** Whether this issue has a saved report, and whether the canvas changed since. */
+  reportStatus: "none" | "current" | "outdated";
+  /** The header's "View report": opens the latest saved version as is. */
+  onOpenReport: () => void;
   onReset: () => void;
   /** Corner radius + Apple-style squircle smoothing — lifted to page.tsx so the
    * same Experiments panel is reachable from every screen. */
@@ -1083,11 +1085,18 @@ export function CanvasScreen({
         getPreferredContinuation(node, feedbackContext),
         ACTION_LOADING_MS
       );
-      const carried: CanvasNodeData = {
-        ...newNode,
-        selected: newNode.kind !== "clarifying-question",
-      };
-      setGraph((g) => ({ nodes: [...g.nodes, carried], edges: [...g.edges, newEdge] }));
+      const isEnd = newNode.kind === "clarifying-question";
+      const carried: CanvasNodeData = { ...newNode, selected: !isEnd };
+      // The selection normally rides on the continuation. An end card can't
+      // carry it, so the preferred card keeps it; otherwise the report built
+      // from that end card would not include the card the user just accepted.
+      setGraph((g) => ({
+        nodes: [
+          ...(isEnd ? g.nodes.map((n) => (n.id === nodeId ? { ...n, selected: true } : n)) : g.nodes),
+          carried,
+        ],
+        edges: [...g.edges, newEdge],
+      }));
       carryNodeOffset(nodeId, carried.id);
       setPendingNodeIds((prev) => {
         const next = new Set(prev);
@@ -1098,23 +1107,7 @@ export function CanvasScreen({
     [graph, feedbackContext, carryNodeOffset]
   );
 
-  const hasSelectedNode = graph.nodes.some((n) => n.selected);
   const selectedCount = graph.nodes.filter((n) => n.selected).length;
-  // A user who only ever follows the one path the canvas first suggests
-  // tends to keep following it rather than doubling back to try another —
-  // finalizing with a single selection (and no like/dislike feedback given
-  // anywhere) is the tunneling case the report's Section 02/03 read sparse
-  // for. This is a one-time confirmation, not a hard block.
-  const feedbackCount = graph.nodes.filter((n) => n.feedback).length;
-  const [showFinalizeConfirm, setShowFinalizeConfirm] = useState(false);
-
-  function handleFinalizeClick() {
-    if (selectedCount < 2 && feedbackCount === 0) {
-      setShowFinalizeConfirm(true);
-      return;
-    }
-    onFinalize(graph);
-  }
 
   // Rebuild React Flow nodes/edges whenever the domain graph or pending set
   // changes. Cards are placed at their RAW auto-layout position here — drag
@@ -1204,7 +1197,6 @@ export function CanvasScreen({
   }, [
     graph,
     pendingNodeIds,
-    hasSelectedNode,
     selectedCount,
     handleSelectToggle,
     handleSelectOption,
@@ -1572,44 +1564,9 @@ export function CanvasScreen({
             <RotateCcw className="h-3.5 w-3.5" />
             Reset session
           </Button>
-          <Button
-            variant="cta"
-            size="sm"
-            disabled={!hasSelectedNode}
-            onClick={handleFinalizeClick}
-          >
-            <Send className="h-3.5 w-3.5" />
-            Finalize
-          </Button>
+          <ViewReportButton status={reportStatus} onClick={onOpenReport} />
         </div>
       </header>
-
-      <Dialog open={showFinalizeConfirm} onOpenChange={setShowFinalizeConfirm}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Finalize with just one recommendation?</DialogTitle>
-            <DialogDescription>
-              You&rsquo;ve selected one path and haven&rsquo;t reacted to any cards. Exploring
-              another suggestion, or liking/disliking a few, gives your report more to work with.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setShowFinalizeConfirm(false)}>
-              Keep exploring
-            </Button>
-            <Button
-              variant="cta"
-              size="sm"
-              onClick={() => {
-                setShowFinalizeConfirm(false);
-                onFinalize(graph);
-              }}
-            >
-              Finalize anyway
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* The root's paper (.paper-bg, shared with the report and tunable from
           the Experiments panel) shows through; React Flow's dots draw on top. */}
@@ -1648,6 +1605,8 @@ export function CanvasScreen({
               <RevealDirector initialGraph={fullInitial} setGraph={setGraph} />
             )}
 
+            <CanvasDock />
+
             <ThemePanel
               themes={themeEntries}
               nodes={rfNodes.filter((n) => n.type === "rxNode") as Node<RxNodeData>[]}
@@ -1659,6 +1618,51 @@ export function CanvasScreen({
         </SourceStyleProvider>
         </SoftnessProvider>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The header's way back to a saved report. Off until the first report is
+ * built: that happens at the end of a path ("View report" on the last card),
+ * never from here. Once a report exists this opens it straight from storage,
+ * with no loader. When the canvas changed since, it still opens the saved
+ * version and says it is outdated.
+ */
+function ViewReportButton({
+  status,
+  onClick,
+}: {
+  status: "none" | "current" | "outdated";
+  onClick: () => void;
+}) {
+  if (status === "none") {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          {/* A disabled button fires no pointer events, so the span carries the tooltip. */}
+          <span tabIndex={0} className="inline-flex">
+            <Button variant="cta" size="sm" disabled>
+              <FileText className="h-3.5 w-3.5" />
+              View report
+            </Button>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">Reach the end of a path to build your report</TooltipContent>
+      </Tooltip>
+    );
+  }
+  return (
+    <div className="flex items-center gap-2">
+      {status === "outdated" && (
+        <span className="font-mono text-[length:var(--text-meta)] uppercase tracking-wide text-muted-foreground">
+          Canvas changed
+        </span>
+      )}
+      <Button variant={status === "outdated" ? "outline-cta" : "cta"} size="sm" onClick={onClick}>
+        <FileText className="h-3.5 w-3.5" />
+        View report
+      </Button>
     </div>
   );
 }

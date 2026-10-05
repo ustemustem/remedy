@@ -26,7 +26,11 @@ import {
 import {
   carryTasks,
   getIssue,
+  getIssues,
   isOutdated,
+  issueGraph,
+  issueOf,
+  issueStates,
   latestReport,
   newReportId,
   type SavedReport,
@@ -64,13 +68,12 @@ export default function Home() {
   // Radius/smoothing/source-identity were the live-tunable experiments —
   // now locked in (see experiment-overlay.tsx, which dropped their sliders
   // and the Source identity switcher accordingly): Control 6px, Card 12px,
-  // Surface 8px, Smoothing 80%, Source identity "rail" (see
+  // Surface 8px, Source identity "rail" (see
   // source-style-context.tsx). No longer state — these never change at
   // runtime, so plain constants replace what used to be tunable useState.
   const CONTROL_RADIUS = 6;
   const CARD_RADIUS = 12;
   const SURFACE_RADIUS = 8;
-  const SMOOTHING = 0.8;
   const sourceStyle: SourceStyle = "rail";
 
   // The Experiments panel is a dev-only tuning tool. It is back on to tune the
@@ -93,11 +96,10 @@ export default function Home() {
   // independently tunable from --radius-card (see globals.css) since it's a
   // nested control, not the outer card.
   const [optionRadius, setOptionRadius] = useState(8);
-  // A card's own origin-strip/note-panel corners (rx-node.tsx) vs. its outer
-  // squircle clip-path boundary (softness-context.tsx) — same 12px radius
-  // number, but a plain circular arc looks visually different from the
-  // squircle's flatter curve. Independently tunable so the two can be dialed
-  // back into visual alignment. See --radius-header in globals.css.
+  // A card's own origin-strip/note-panel corners (rx-node.tsx), tunable
+  // apart from the card's outer corner (--radius-card). Cards dropped the
+  // squircle for a plain radius on 2026-10-01, so the two can now simply
+  // match. See --radius-header in globals.css.
   const [headerRadius, setHeaderRadius] = useState(12);
   // Canvas background experiment: React Flow's plain dot grid vs Surface Field,
   // which bends around the cards (components/canvas/surface-field-background.tsx).
@@ -129,13 +131,14 @@ export default function Home() {
   useEffect(() => {
     document.documentElement.dataset.linkWeight = linkWeight;
   }, [linkWeight]);
-  const softness = useMemo(() => ({ radius: CARD_RADIUS, smoothing: SMOOTHING }), []);
 
   const session = sessions.find((s) => s.id === sessionId) ?? null;
   const reports = useMemo(() => session?.reports ?? [], [session]);
-  const issue = getIssue(graph);
-  const latest = issue ? latestReport(reports, issue.id) : null;
-  const reportStatus = !latest ? "none" : isOutdated(latest, graph) ? "outdated" : "current";
+  // Every issue on the canvas with its latest report and state, for the
+  // canvas header's View report button and its issue menu.
+  const issueReports = useMemo(() => issueStates(reports, graph), [reports, graph]);
+  // The issue a new version is being built for (set at the end card).
+  const [buildIssueId, setBuildIssueId] = useState<string | null>(null);
   const activeReport = reports.find((r) => r.id === activeReportId) ?? null;
 
   /** Puts a freshly saved record at the top of the sidebar list. */
@@ -189,10 +192,12 @@ export default function Home() {
 
   // "View report" on the card at the end of a path. Opens the saved report
   // when the canvas hasn't changed since; otherwise builds a new version.
-  function handleFinalize(finalGraph: CanvasGraph) {
+  function handleFinalize(finalGraph: CanvasGraph, fromNodeId?: string) {
     setGraph(finalGraph);
-    const finalIssue = getIssue(finalGraph);
-    const last = finalIssue ? latestReport(reports, finalIssue.id) : null;
+    // The end card's own issue; the first issue when the caller doesn't say.
+    const issueId = (fromNodeId && issueOf(fromNodeId, finalGraph.nodes)) || getIssue(finalGraph)?.id || null;
+    setBuildIssueId(issueId);
+    const last = issueId ? latestReport(reports, issueId) : null;
     if (last && !isOutdated(last, finalGraph)) {
       openReport(last);
       return;
@@ -201,17 +206,19 @@ export default function Home() {
   }
 
   function handleReportReady(data: ReportData) {
-    const builtIssue = getIssue(graph);
+    const builtIssue = getIssues(graph).find((i) => i.id === buildIssueId) ?? getIssue(graph);
     if (!builtIssue) return;
+    // A report reads and keeps only its own issue's tree.
+    const builtGraph = issueGraph(graph, builtIssue.id);
     const previous = latestReport(reports, builtIssue.id);
-    const freshTasks = buildMockTasks(deriveDashboardNeeds(graph.nodes));
+    const freshTasks = buildMockTasks(deriveDashboardNeeds(builtGraph.nodes));
     const report: SavedReport = {
       id: newReportId(),
       issueId: builtIssue.id,
       issueTitle: builtIssue.title,
       version: (previous?.version ?? 0) + 1,
       data,
-      graph,
+      graph: builtGraph,
       tasks: previous ? carryTasks(previous.tasks, freshTasks) : freshTasks,
       createdAt: Date.now(),
     };
@@ -285,12 +292,16 @@ export default function Home() {
   // A dashboard step with no saved report to show (e.g. storage was cleared)
   // falls back to the canvas, where the end card can build one.
   const content = transitioning ? (
-      <ReportLoader graph={graph} onReady={handleReportReady} />
+      <ReportLoader
+        graph={issueGraph(graph, buildIssueId ?? getIssue(graph)?.id ?? "")}
+        onReady={handleReportReady}
+      />
     ) : step === "dashboard" && activeReport ? (
       <DashboardScreen
         key={activeReport.id}
         report={activeReport}
         reports={reports}
+        issueOrder={getIssues(graph).map((i) => i.id)}
         outdated={isOutdated(latestReport(reports, activeReport.issueId) ?? activeReport, graph)}
         sessionId={sessionId}
         onSelectReport={(id) => setActiveReportId(id)}
@@ -307,17 +318,19 @@ export default function Home() {
         initialGraph={graph}
         onGraphChange={handleGraphChange}
         onFinalize={handleFinalize}
-        reportStatus={reportStatus}
-        onOpenReport={() => latest && openReport(latest)}
+        issueReports={issueReports}
+        onOpenReport={(issueId) => {
+          const last = latestReport(reports, issueId);
+          if (last) openReport(last);
+        }}
         onReset={handleReset}
-        softness={softness}
         sourceStyle={sourceStyle}
         background={canvasBackground}
         fieldSettings={surfaceField}
       />
     ) : (
       <>
-        <ChatEntryScreen onSubmit={handleChatSubmit} loading={loading} />
+        <ChatEntryScreen onSubmit={handleChatSubmit} loading={loading} fieldSettings={surfaceField} />
         {error && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 border border-destructive bg-card px-4 py-2 text-sm text-destructive shadow-none">
             {error}

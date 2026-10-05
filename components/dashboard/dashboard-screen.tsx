@@ -19,6 +19,7 @@ type Tab = "report" | "tasks";
 export function DashboardScreen({
   report,
   reports,
+  issueOrder,
   outdated,
   sessionId,
   onSelectReport,
@@ -32,6 +33,8 @@ export function DashboardScreen({
   report: SavedReport;
   /** Every saved version in the session, for the issue / version picker. */
   reports: SavedReport[];
+  /** Issue ids in canvas order, for the picker's issue numbers. */
+  issueOrder?: string[];
   /** The canvas changed after this issue's latest version was built. */
   outdated: boolean;
   /** The real session id — becomes the letterhead REF / footer control number. */
@@ -92,7 +95,7 @@ export function DashboardScreen({
         <div className="flex items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element -- static local SVG, no optimization needed */}
           <img src="/logo.svg" alt="Remedy" className="h-7 w-auto" />
-          <ReportPicker report={report} reports={reports} onSelect={onSelectReport} />
+          <ReportPicker report={report} reports={reports} issueOrder={issueOrder} onSelect={onSelectReport} />
           {isOlder ? (
             <span className="font-mono text-[length:var(--text-meta)] uppercase tracking-wide text-muted-foreground">
               Older version

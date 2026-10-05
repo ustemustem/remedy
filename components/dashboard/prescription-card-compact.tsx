@@ -11,6 +11,7 @@ import {
 import type { DashboardNeed } from "@/lib/graph";
 import { EvidenceRow } from "./evidence-row";
 import { FitScore, FitBars } from "./fit-meter";
+import { AngleNotes } from "./angle-notes";
 
 export function PrescriptionCardCompact({
   need,
@@ -52,6 +53,8 @@ export function PrescriptionCardCompact({
         </div>
 
         {need.fit && <FitBars fit={need.fit} showNotes={false} />}
+
+        <AngleNotes need={need} compact />
 
         {evidenceLoading ? (
           <p className="text-[length:var(--text-label)] text-muted-foreground">Finding evidence…</p>

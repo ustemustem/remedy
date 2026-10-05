@@ -116,6 +116,9 @@ export interface DashboardNeed {
   fit?: FitSignal;
   /** Grounded evidence (Phase 3b), attached by the report after the async call. */
   evidence?: EvidenceExample[];
+  /** Spark cards that test this need (docs/ideas/dock-functions.md, Spark). They go
+   *  into the report with the card they test, never as needs of their own. */
+  angles?: Partial<Record<"pushback" | "risk" | "step", CanvasNodeData>>;
 }
 
 /**
@@ -126,7 +129,10 @@ export interface DashboardNeed {
  */
 export function deriveDashboardNeeds(nodes: CanvasNodeData[]): DashboardNeed[] {
   const supersededIds = getSupersededIds(nodes);
-  const selectedNodes = nodes.filter((n) => n.selected && !supersededIds.has(n.id));
+  // Angle (Spark) cards join their parent's need below, not the list itself.
+  const selectedNodes = nodes.filter(
+    (n) => n.selected && !supersededIds.has(n.id) && n.kind !== "angle"
+  );
   const source = nodes.find((n) => n.kind === "source");
   const sourceHighlights = source?.highlights ?? [];
 
@@ -139,12 +145,18 @@ export function deriveDashboardNeeds(nodes: CanvasNodeData[]): DashboardNeed[] {
         ? sourceHighlights[i % sourceHighlights.length].text
         : (source?.body ?? node.body).slice(0, 90);
 
+    const angles: DashboardNeed["angles"] = {};
+    for (const a of nodes) {
+      if (a.kind === "angle" && a.angle && a.parentId === node.id) angles[a.angle] = a;
+    }
+
     return {
       node,
       category: node.highlights?.[0]?.primaryTag ?? themesForNode(node)[0] ?? "General",
       quote,
       revisionCount: (node.activeRevision ?? node.version ?? 1) - 1,
       eliminated,
+      ...(Object.keys(angles).length > 0 ? { angles } : {}),
     };
   });
 }

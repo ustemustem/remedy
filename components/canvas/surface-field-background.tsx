@@ -168,8 +168,8 @@ function nodeRects(
       top: b.top * zoom + y,
       right: b.right * zoom + x,
       bottom: b.bottom * zoom + y,
-      // Match the drawn corners: frames use --radius-surface, cards --radius-card.
-      radius: (node.type === "groupFrame" ? 8 : 12) * zoom,
+      // Match the drawn corners: frames use --radius-surface, cards --radius-card-shaped.
+      radius: (node.type === "groupFrame" ? 8 : 18) * zoom,
     });
   }
   return rects;
@@ -448,5 +448,81 @@ export function SurfaceFieldBackground({
       />
       <FieldBridge controller={controller} root={root} onArrive={onArrive} />
     </>
+  );
+}
+
+/**
+ * The same field without React Flow. Used behind the chat entry screen, so
+ * the ground there matches the canvas. `surface` is the one element the field
+ * clears around, as it does around a card on the canvas (the chat box). The
+ * pointer still lights the field and a press still drops a ripple.
+ */
+export function StandaloneSurfaceField({
+  root,
+  surface,
+  settings = SURFACE_FIELD_DEFAULTS,
+}: {
+  root: RefObject<HTMLElement | null>;
+  surface?: RefObject<HTMLElement | null>;
+  settings?: SurfaceFieldSettings;
+}) {
+  const controller = useMemo(() => createSurfaceFieldController(), []);
+
+  // Keep the surface's box in the scene: on mount, and whenever the page or
+  // the box resizes (the chat box grows as the user types) or the page scrolls.
+  useEffect(() => {
+    const rootEl = root.current;
+    const surfaceEl = surface?.current;
+    if (!rootEl || !surfaceEl) return;
+    const sync = () => {
+      const r = rootEl.getBoundingClientRect();
+      const b = surfaceEl.getBoundingClientRect();
+      const radius = parseFloat(getComputedStyle(surfaceEl).borderTopLeftRadius) || 0;
+      controller.setScene({
+        root: rootEl,
+        rects: [
+          {
+            id: "surface",
+            parent: null,
+            left: b.left - r.left,
+            top: b.top - r.top,
+            right: b.right - r.left,
+            bottom: b.bottom - r.top,
+            radius,
+          },
+        ],
+      });
+    };
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(rootEl);
+    observer.observe(surfaceEl);
+    rootEl.addEventListener("scroll", sync, { passive: true });
+    return () => {
+      observer.disconnect();
+      rootEl.removeEventListener("scroll", sync);
+      controller.setScene(null);
+    };
+  }, [controller, root, surface]);
+
+  return (
+    <SurfaceField
+      controller={controller}
+      interactionRoot={root}
+      worker={createFieldWorker}
+      gap={settings.gap}
+      focusRadius={settings.focusRadius}
+      lineRadius={settings.lineRadius}
+      connected={settings.connected}
+      baseOpacity={settings.baseOpacity}
+      maxOpacity={settings.maxOpacity}
+      surfacePadding={settings.surfacePadding}
+      tint={0}
+      breathe={settings.breathe}
+      wander={settings.wander}
+      cursorPush={settings.cursorPush}
+      ripplePush={settings.ripplePush}
+      style={{ position: "absolute", inset: 0, color: "var(--muted-foreground)" }}
+    />
   );
 }

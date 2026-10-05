@@ -154,9 +154,12 @@ reflects the latest revision, not whichever version happened to be selected firs
 `forceSelected` lets "Prefer this option" mark the new revision selected even if the card was
 never explicitly selected first (it's an accept-and-continue action, not gated on prior select).
 
-Cards with an `optionSet` (A/B/C picker) are *not* independently selectable by clicking the
-card — branching happens exclusively through the option picker's own "Select and continue",
-so `RxNode`'s `canSelect` is `false` whenever `nodeData.optionSet` is set.
+A card click does **not** touch `selected` any more: it only makes the card the canvas
+selection (Spark's target; see "Canvas dock and Spark"). `selected` changes through "Prefer
+this option", "Select and continue", or the "Add to report" / "Remove from report" button in
+the card's hover bar. The canvas shows the report path: edges into cards in the report, and
+into every card above one, draw solid green (`onPath` edge data, `rx-edge.tsx`). Cards with an option
+picker are not selectable by hand (`canSelect` is false); branching goes through the picker.
 
 ### Design tokens: two different "primary" concepts
 
@@ -171,8 +174,26 @@ and a separate `--cta` (`#CD5C1F`, the logo's orange dot), mapped into Tailwind 
   hover) variant; which one a button uses is often state-driven (e.g. `option-picker.tsx`
   shows `outline-cta` once a choice is picked but not yet submitted).
 
-`--radius` is 4px project-wide (deliberately sharp/clinical, not shadcn's default rounded-lg)
-— see `docs/CanvasRx_DESIGN_GUIDELINES.md` for the full rationale and the rest of the palette.
+Radii live in `app/globals.css`: `--radius-control` 6px, `--radius-surface` 8px,
+`--radius-card` 12px (small card-like rows). Cards, report cards, Next steps and the dock use
+`--radius-card-shaped` (18px) with `corner-shape: var(--card-corner-shape)` (a CSS squircle the
+browser draws, so borders and fills follow it; unsupported browsers fall back to the plain
+radius). No clip-path or SVG strokes for card shapes; that approach was dropped on
+2026-10-01. The older 4px rule in `docs/CanvasRx_DESIGN_GUIDELINES.md` is superseded.
+
+### Canvas dock and Spark
+
+`components/canvas/canvas-dock.tsx` (spec: `docs/handoff-canvas-dock.md`, which supersedes
+older docs on dock styling) holds New issue, Link, and Spark; Link is "Coming next". New issue adds a draft
+source card (`draft: true`, suggestion chips); "Add issue" grows its tree with
+`getInitialCanvas` and links it to the latest issue (`links` on the source node, drawn by
+`link-edge.tsx`). Several source nodes = several issues side by side; `lib/reports.ts`
+(`getIssues`, `issueOf`, `issueGraph`) scopes reports, outdated checks and the View report
+menu per issue. Spark tests the last clicked card (kept in
+`canvas-screen.tsx` state and passed through `SparkTargetContext`, not React Flow's own
+`selected`, which the per-change node rebuild would drop) and appends an `angle` card under it
+(`lib/angles.ts`, mock copy in `lib/mockAI.ts`'s `pickWeakestAngle` / `sparkAngle`). Shortcuts
+N / L / S / Esc are global but ignored while typing.
 
 ### React Flow nodes: drag vs. click
 

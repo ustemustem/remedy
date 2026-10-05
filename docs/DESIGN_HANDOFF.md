@@ -1,5 +1,17 @@
 # Design Handoff: Remedy (CanvasRx) — All Screens
 
+> **Superseded in part (2026-10-02).** The live design system is `app/globals.css`, and the
+> canvas dock follows `docs/handoff-canvas-dock.md`. Where this file disagrees, those win:
+> - **Radii:** controls 6px, floating surfaces 8px, small rows 12px. Cards, report cards and the
+>   dock use a CSS squircle: `--radius-card-shaped` 18px with `corner-shape: superellipse(2)`.
+>   No 4px base radius.
+> - **Fonts:** Geist for text, Courier Prime for labels, headings and numbers. No Inter, no
+>   IBM Plex Mono.
+> - **Brand green:** `--primary` is `#1F4838`, not `#2F6F62`.
+> - **Shadows:** lifted surfaces (the dock, popovers, report cards) carry soft shadows. Canvas
+>   cards stay flat.
+> - **Surfaces:** gray and white only, with no warm tones.
+
 Generated from the current implementation (not a pre-build spec) — this documents what's actually built and shipped, for anyone picking up the codebase or re-implementing it on another stack. Tech stack: Next.js (Turbopack) + React 19 + Tailwind v4 + shadcn/ui + React Flow (canvas). No backend — see "Mock AI" note in each relevant section.
 
 **App structure:** one page (`app/page.tsx`), no routing. A single `step` variable (`'chat' | 'canvas' | 'dashboard'`) selects which screen renders. A persistent left sidebar (Session Sidebar) is mounted once, outside the step switch, and shows on all three screens.

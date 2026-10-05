@@ -107,7 +107,7 @@ export function TaskDetail({
   }
 
   return (
-    <article className="report-card-surface flex flex-col gap-4 rounded-[var(--radius-card)] border border-border bg-card p-[var(--card-px)]">
+    <article className="report-card-surface flex flex-col gap-4 rounded-[var(--radius-card-shaped)] [corner-shape:var(--card-corner-shape)] border border-border bg-card p-[var(--card-px)]">
       <header className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <p className={LABEL}>

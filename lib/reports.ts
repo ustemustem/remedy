@@ -8,7 +8,7 @@
  * multi-issue canvas adds more source nodes; this model already keys on them.
  */
 
-import type { CanvasGraph, ReportData } from "./types";
+import type { CanvasGraph, CanvasNodeData, ReportData } from "./types";
 import type { Task } from "./tasks";
 
 export interface SavedReport {
@@ -32,10 +32,62 @@ export interface Issue {
   title: string;
 }
 
-/** The canvas's issue. One source node per canvas for now. */
+/** The canvas's first issue. Kept for callers that predate several issues. */
 export function getIssue(graph: CanvasGraph): Issue | null {
-  const source = graph.nodes.find((n) => n.kind === "source");
-  return source ? { id: source.id, title: source.body } : null;
+  return getIssues(graph)[0] ?? null;
+}
+
+/** Every written issue on the canvas (each source node that is not a draft),
+ *  in the order they were added. */
+export function getIssues(graph: CanvasGraph): Issue[] {
+  return graph.nodes
+    .filter((n) => n.kind === "source" && !n.draft)
+    .map((n) => ({ id: n.id, title: n.body }));
+}
+
+/** One issue's own tree as a graph: what its report is built from and saved as. */
+export function issueGraph(graph: CanvasGraph, issueId: string): CanvasGraph {
+  const nodes = issueNodes(graph.nodes, issueId);
+  const ids = new Set(nodes.map((n) => n.id));
+  return { nodes, edges: graph.edges.filter((e) => ids.has(e.source) && ids.has(e.target)) };
+}
+
+/** The issue a card belongs to: the source node at the root of its tree. */
+export function issueOf(nodeId: string, nodes: CanvasNodeData[]): string | null {
+  return rootOf(nodeId, new Map(nodes.map((n) => [n.id, n])));
+}
+
+function rootOf(nodeId: string, byId: Map<string, CanvasNodeData>): string | null {
+  let node = byId.get(nodeId);
+  const seen = new Set<string>();
+  while (node && node.parentId && !seen.has(node.id)) {
+    seen.add(node.id);
+    node = byId.get(node.parentId);
+  }
+  return node?.kind === "source" ? node.id : null;
+}
+
+/** The nodes in one issue's tree. */
+function issueNodes(nodes: CanvasNodeData[], issueId: string): CanvasNodeData[] {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  return nodes.filter((n) => rootOf(n.id, byId) === issueId);
+}
+
+export type IssueReportStatus = "none" | "current" | "outdated";
+
+export interface IssueReportState {
+  issue: Issue;
+  latest: SavedReport | null;
+  status: IssueReportStatus;
+}
+
+/** Each issue with its latest report and whether its tree changed since. */
+export function issueStates(reports: SavedReport[], graph: CanvasGraph): IssueReportState[] {
+  return getIssues(graph).map((issue) => {
+    const latest = latestReport(reports, issue.id);
+    const status: IssueReportStatus = !latest ? "none" : isOutdated(latest, graph) ? "outdated" : "current";
+    return { issue, latest, status };
+  });
 }
 
 /** Versions of one issue, oldest first. */
@@ -57,10 +109,14 @@ export function reportedIssues(reports: SavedReport[]): Issue[] {
   return [...seen.values()];
 }
 
-/** True when the canvas changed after this version was built. Any node
- *  change counts: a pick, a note, a select, a like. */
+/** True when this issue's tree changed after the version was built. Any node
+ *  change in the tree counts: a pick, a note, a select, a like. Changes in
+ *  another issue's tree do not. */
 export function isOutdated(report: SavedReport, graph: CanvasGraph): boolean {
-  return JSON.stringify(report.graph.nodes) !== JSON.stringify(graph.nodes);
+  return (
+    JSON.stringify(issueNodes(report.graph.nodes, report.issueId)) !==
+    JSON.stringify(issueNodes(graph.nodes, report.issueId))
+  );
 }
 
 /**

@@ -29,6 +29,8 @@ import type {
   ReportData,
 } from "./types";
 import type { DashboardNeed, ThemeEntry } from "./graph";
+import type { AngleId } from "./angles";
+import type { IssueLinkType } from "./types";
 import { deriveDashboardNeeds, deriveThemeEntries, deriveSessionStats } from "./graph";
 import {
   mapSummarySegments,
@@ -637,3 +639,118 @@ function baseTitle(node: CanvasNodeData) {
   return node.title.replace(/\s\(v\d+\)$/, "");
 }
 
+
+// ---------------------------------------------------------------------------
+// Spark (lib/angles.ts). MOCK: the angle order and the copy are canned. A real
+// pass scores the card for its weakest side and writes the angle with the LLM.
+// ---------------------------------------------------------------------------
+
+/** Two canned copy sets, picked per card so two cards don't read the same. */
+const ANGLE_COPY: Record<AngleId, { title: string; body: string }>[] = [
+  {
+    pushback: {
+      title: "Someone who liked the old way",
+      body: "Any change moves someone else's work. Find them before they find you.",
+    },
+    risk: {
+      title: "It works once, then slips",
+      body: "A good first week is easy. Decide now what you'll do the first time you skip it.",
+    },
+    step: {
+      title: "Do a 15-minute version",
+      body: "Shrink it until it fits before lunch. If it still feels heavy, shrink it again.",
+    },
+  },
+  {
+    pushback: {
+      title: "Whoever owns the parked work",
+      body: "Parking their task reads as a no. Say when it comes back, not only that it waits.",
+    },
+    risk: {
+      title: "The first step is too big",
+      body: "If today's one task takes all day, the list wins again. Keep it under 90 minutes.",
+    },
+    step: {
+      title: "Name tomorrow's task tonight",
+      body: "Before you log off, write one line on a sticky note. Nothing else goes on it.",
+    },
+  },
+];
+
+/** The three fixed orders the mock rotates through, one per card. */
+const ANGLE_ORDERS: AngleId[][] = [
+  ["risk", "pushback", "step"],
+  ["pushback", "step", "risk"],
+  ["risk", "step", "pushback"],
+];
+
+function cardSeed(card: CanvasNodeData): number {
+  let h = 0;
+  for (const ch of card.id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return h;
+}
+
+/**
+ * The angle where this card is weakest, skipping the ones already open.
+ * Null when all three are open. MOCK: a fixed order per card.
+ */
+export function pickWeakestAngle(card: CanvasNodeData, used: AngleId[]): AngleId | null {
+  const order = ANGLE_ORDERS[cardSeed(card) % ANGLE_ORDERS.length];
+  return order.find((a) => !used.includes(a)) ?? null;
+}
+
+/** Writes the angle card under `card`. Same append-only shape as every other new node. */
+export async function sparkAngle(
+  card: CanvasNodeData,
+  angle: AngleId
+): Promise<{ node: CanvasNodeData; edge: CanvasEdgeData }> {
+  await new Promise((r) => setTimeout(r, 500 + Math.random() * 1000));
+  const copy = ANGLE_COPY[cardSeed(card) % ANGLE_COPY.length][angle];
+  const node: CanvasNodeData = {
+    id: id("angle"),
+    kind: "angle",
+    angle,
+    title: copy.title,
+    body: copy.body,
+    parentId: card.id,
+    depth: card.depth + 1,
+    selected: false,
+    groupId: card.groupId,
+    groupLabel: card.groupLabel,
+  };
+  return { node, edge: edge(card.id, node.id) };
+}
+
+// ---------------------------------------------------------------------------
+// New issue (dock). MOCK: the suggested questions and the link type are
+// canned rules. A real pass reads the session and the report with the LLM.
+// ---------------------------------------------------------------------------
+
+/** 2 or 3 questions to start the next issue from, drawn from the latest issue. */
+export async function suggestNextIssues(graph: CanvasGraph): Promise<string[]> {
+  await new Promise((r) => setTimeout(r, 400 + Math.random() * 600));
+  const sources = graph.nodes.filter((n) => n.kind === "source" && !n.draft);
+  const latest = sources[sources.length - 1];
+  const picked = graph.nodes.filter(
+    (n) => n.selected && n.kind !== "angle" && latest && issueRoot(n, graph.nodes) === latest.id
+  );
+  const tried = picked[picked.length - 1];
+  const out = ["Is the way I'm going about this the real problem?"];
+  if (tried) out.push(`I tried "${baseTitle(tried)}". It didn't land. What now?`);
+  out.push("Something else keeps getting in the way.");
+  return out;
+}
+
+function issueRoot(node: CanvasNodeData, nodes: CanvasNodeData[]): string | null {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  let cur: CanvasNodeData | undefined = node;
+  while (cur?.parentId) cur = byId.get(cur.parentId);
+  return cur?.kind === "source" ? cur.id : null;
+}
+
+/** "digs-into" when the new issue questions a cause, otherwise "follows-up". */
+export function pickLinkType(newIssue: string): IssueLinkType {
+  return /\b(why|wrong|cause|reason|because|root|really|real problem|method|approach|way I)\b/i.test(newIssue)
+    ? "digs-into"
+    : "follows-up";
+}

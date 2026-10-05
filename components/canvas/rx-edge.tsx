@@ -18,7 +18,11 @@ export function RxEdge({
   sourcePosition,
   targetPosition,
   style,
-}: EdgeProps) {
+  data,
+}: EdgeProps<{ onPath?: boolean }>) {
+  // On the report path: solid, soft brand green. Off it: the dashed gray note line.
+  const onPath = !!data?.onPath;
+  const color = onPath ? "color-mix(in srgb, var(--primary) 55%, transparent)" : "var(--border)";
   const [edgePath] = getSmoothStepPath({
     sourceX,
     sourceY,
@@ -35,15 +39,16 @@ export function RxEdge({
         d={edgePath}
         fill="none"
         style={{
-          stroke: "var(--border)",
+          stroke: color,
           strokeWidth: 1.5,
-          strokeDasharray: "4 4",
+          strokeDasharray: onPath ? undefined : "4 4",
+          transition: "stroke 200ms ease-out",
           strokeLinecap: "butt",
           ...style,
         }}
       />
-      <circle cx={sourceX} cy={sourceY} r={3} fill="var(--border)" />
-      <circle cx={targetX} cy={targetY} r={3} fill="var(--border)" />
+      <circle cx={sourceX} cy={sourceY} r={3} fill={color} />
+      <circle cx={targetX} cy={targetY} r={3} fill={color} />
     </g>
   );
 }

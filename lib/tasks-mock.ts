@@ -74,8 +74,8 @@ function searchLink(label: string, query: string) {
 }
 
 export function buildMockTasks(needs: DashboardNeed[]): Task[] {
-  const tasks = needs.flatMap((need, n) =>
-    TEMPLATES.map((tpl, i): Task => {
+  const tasks = needs.flatMap((need, n) => {
+    const fromTemplates = TEMPLATES.map((tpl, i): Task => {
       const id = `${need.node.id}-${i}`;
       return {
         id: `task-${id}`,
@@ -95,7 +95,54 @@ export function buildMockTasks(needs: DashboardNeed[]): Task[] {
         version: 1,
         history: [{ version: 1, label: "First version from your report" }],
       };
-    })
-  );
+    });
+    return withAngles(need, fromTemplates, n * (TEMPLATES.length + 1));
+  });
   return rankByPriority(tasks);
+}
+
+/**
+ * Spark angles shape the need's tasks (docs/ideas/dock-functions.md, Spark):
+ * the step angle becomes the need's first task, this week; the pushback
+ * angle names who to talk to on the need's first conversation task.
+ */
+function withAngles(need: DashboardNeed, tasks: Task[], baseOrder: number): Task[] {
+  const { step, pushback } = need.angles ?? {};
+  let out = tasks.map((t, i) => ({ ...t, order: baseOrder + i + 1 }));
+  if (pushback) {
+    const talk = out.findIndex((t) => t.contact.channel === "in-person" || t.contact.channel === "call");
+    if (talk >= 0) {
+      const t = out[talk];
+      out[talk] = {
+        ...t,
+        contact: { ...t.contact, who: pushback.title },
+        why: `${t.why} Expect pushback: ${pushback.body}`,
+      };
+    }
+  }
+  if (step) {
+    const id = `${need.node.id}-step`;
+    out = [
+      {
+        id: `task-${id}`,
+        needNodeId: need.node.id,
+        needTitle: need.node.title,
+        title: step.title,
+        why: step.body,
+        priority: "high",
+        order: baseOrder,
+        status: "todo",
+        timeframe: "this-week",
+        durationMin: 15,
+        contact: { who: "Just you", channel: "in-person", draft: "" },
+        steps: [{ id: `step-${id}-0`, text: step.title, done: false }],
+        notes: "",
+        sources: [],
+        version: 1,
+        history: [{ version: 1, label: "First step, from Spark" }],
+      },
+      ...out,
+    ];
+  }
+  return out;
 }

@@ -24,18 +24,28 @@ import ReactFlow, {
   type NodeChange,
 } from "reactflow";
 import "reactflow/dist/style.css";
-import { FileText, RotateCcw } from "lucide-react";
+import { ChevronDown, FileText, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { RxNode, type RxNodeData } from "./rx-node";
 import { RxEdge } from "./rx-edge";
+import { LinkEdge, type LinkEdgeData } from "./link-edge";
 import { GroupFrameNode, type GroupFrameNodeData } from "./group-frame-node";
 import { ThemePanel } from "./theme-panel";
-import { SoftnessProvider } from "./softness-context";
 import { SourceStyleProvider, type SourceStyle } from "./source-style-context";
 import { SurfaceFieldBackground, type SurfaceFieldSettings } from "./surface-field-background";
 import { layoutNodes } from "@/lib/layout";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { CanvasDock } from "./canvas-dock";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { issueOf, type IssueReportState } from "@/lib/reports";
+import { CanvasDock, type DockBusy, type SparkStatus } from "./canvas-dock";
+import { SparkTargetContext } from "./spark-target-context";
+import { ANGLES, SPARK_FIRST_STAGE, canSpark, usedAngles } from "@/lib/angles";
 import {
   getOptionResponse,
   getPreferredContinuation,
@@ -44,6 +54,11 @@ import {
   refineChoiceOptions,
   branchFromNote,
   branchFromChoiceFraming,
+  pickWeakestAngle,
+  sparkAngle,
+  getInitialCanvas,
+  pickLinkType,
+  suggestNextIssues,
 } from "@/lib/mockAI";
 import {
   getSupersededIds,
@@ -53,7 +68,7 @@ import {
   isStale,
 } from "@/lib/graph";
 import { loadingCycleMs, withMinDuration } from "@/lib/timing";
-import type { CanvasGraph, CanvasNodeData, CardOrigin, ChoiceOption } from "@/lib/types";
+import type { CanvasGraph, CanvasNodeData, CardOrigin, ChoiceOption, IssueLinkType } from "@/lib/types";
 
 // Matches rx-node.tsx's CARD_LOADING_STAGES and option-picker.tsx's
 // PICK_LOADING_STAGES — both two stages at a 700ms interval. Every mock AI
@@ -82,7 +97,7 @@ function forceHoverRecompute() {
 }
 
 const nodeTypes = { rxNode: RxNode, groupFrame: GroupFrameNode };
-const edgeTypes = { rxEdge: RxEdge };
+const edgeTypes = { rxEdge: RxEdge, rxLink: LinkEdge };
 
 // Branch-framing settings, finalized after comparing variants in the
 // Experiments overlay: right-angle connectors, hover-only path frames,
@@ -558,10 +573,9 @@ export function CanvasScreen({
   initialGraph,
   onGraphChange,
   onFinalize,
-  reportStatus,
+  issueReports,
   onOpenReport,
   onReset,
-  softness,
   sourceStyle,
   background = "dots",
   fieldSettings,
@@ -571,15 +585,12 @@ export function CanvasScreen({
   onGraphChange?: (graph: CanvasGraph) => void;
   /** The end-of-path card's "View report": opens the saved report, or builds a
    *  new version when there is none yet or the canvas changed since. */
-  onFinalize: (graph: CanvasGraph) => void;
-  /** Whether this issue has a saved report, and whether the canvas changed since. */
-  reportStatus: "none" | "current" | "outdated";
-  /** The header's "View report": opens the latest saved version as is. */
-  onOpenReport: () => void;
+  onFinalize: (graph: CanvasGraph, fromNodeId?: string) => void;
+  /** Every issue with its latest report and whether its tree changed since. */
+  issueReports: IssueReportState[];
+  /** The header's "View report": opens that issue's latest saved version as is. */
+  onOpenReport: (issueId: string) => void;
   onReset: () => void;
-  /** Corner radius + Apple-style squircle smoothing — lifted to page.tsx so the
-   * same Experiments panel is reachable from every screen. */
-  softness: { radius: number; smoothing: number };
   /** Source card visual identity experiment — see source-style-context.tsx. */
   sourceStyle: SourceStyle;
   /** Canvas background experiment: React Flow's dot grid, or Surface Field
@@ -1109,6 +1120,131 @@ export function CanvasScreen({
 
   const selectedCount = graph.nodes.filter((n) => n.selected).length;
 
+  // ── Spark (dock). The target is the last card the user clicked; a click on
+  // empty canvas or Esc clears it. See components/canvas/spark-target-context.tsx.
+  const [sparkTargetId, setSparkTargetId] = useState<string | null>(null);
+  const [dockBusy, setDockBusy] = useState<DockBusy>(null);
+  const sparkTarget = sparkTargetId ? graph.nodes.find((n) => n.id === sparkTargetId) ?? null : null;
+  const sparkStatus: SparkStatus = !sparkTarget
+    ? "no-selection"
+    : usedAngles(sparkTarget, graph.nodes).length >= 3
+      ? "all-used"
+      : "ready";
+
+  const handleNodeClick = useCallback((_: React.MouseEvent, node: Node<RxNodeData | GroupFrameNodeData>) => {
+    if (node.type !== "rxNode") return;
+    const card = (node.data as RxNodeData).nodeData;
+    if (canSpark(card)) setSparkTargetId(card.id);
+  }, []);
+  const clearSparkTarget = useCallback(() => setSparkTargetId(null), []);
+
+  // ── New issue (dock). docs/ideas/dock-functions.md, New issue.
+  // The camera glides to a card when it lands; with the N key it jumps.
+  const [focusRequest, setFocusRequest] = useState<{ id: string; instant: boolean; n: number } | null>(null);
+  const focusOn = useCallback((id: string, instant: boolean) => {
+    setFocusRequest((r) => ({ id, instant, n: (r?.n ?? 0) + 1 }));
+  }, []);
+
+  async function handleNewIssue(viaKey: boolean) {
+    if (dockBusy) return;
+    // One draft at a time: a second press goes back to the open one.
+    const open = graph.nodes.find((n) => n.kind === "source" && n.draft);
+    if (open) {
+      focusOn(open.id, viaKey);
+      return;
+    }
+    setDockBusy({ tool: "new", stages: ["Reading the session…", "Drafting an issue…"] });
+    try {
+      // The suggested questions are what the button's stages wait on.
+      const suggestions = await withMinDuration(suggestNextIssues(graph), 2600);
+      const draft: CanvasNodeData = {
+        id: `draft-${Date.now()}`,
+        kind: "source",
+        title: "What you wrote",
+        body: "",
+        parentId: null,
+        depth: 0,
+        selected: false,
+        draft: true,
+        suggestions,
+      };
+      setGraph((g) => ({ nodes: [...g.nodes, draft], edges: g.edges }));
+      focusOn(draft.id, viaKey);
+    } finally {
+      setDockBusy(null);
+    }
+  }
+
+  // The draft becomes a real issue: its own first-pass tree, linked to the
+  // latest issue (provisional rule: the AI picks the type; the chip edits it).
+  const handleSubmitIssue = useCallback(
+    async (draftId: string, text: string) => {
+      setPendingNodeIds((prev) => new Set(prev).add(draftId));
+      try {
+        const fresh = await withMinDuration(getInitialCanvas(text), loadingCycleMs(3, 700));
+        const source = fresh.nodes.find((n) => n.kind === "source");
+        if (!source) return;
+        setGraph((g) => {
+          const written = g.nodes.filter((n) => n.kind === "source" && !n.draft);
+          const latest = written[written.length - 1];
+          const linked: CanvasNodeData = latest
+            ? { ...source, links: [{ to: latest.id, type: pickLinkType(text) }] }
+            : source;
+          return {
+            nodes: [...g.nodes.filter((n) => n.id !== draftId), linked, ...fresh.nodes.filter((n) => n !== source)],
+            edges: [...g.edges, ...fresh.edges],
+          };
+        });
+        focusOn(source.id, false);
+      } catch {
+        // The draft stays, with its text, so the user can try again.
+      } finally {
+        setPendingNodeIds((prev) => {
+          const next = new Set(prev);
+          next.delete(draftId);
+          return next;
+        });
+      }
+    },
+    [focusOn]
+  );
+
+  const handleDiscardIssue = useCallback((draftId: string) => {
+    setGraph((g) => ({ nodes: g.nodes.filter((n) => n.id !== draftId), edges: g.edges }));
+  }, []);
+
+  /** Change a link's type, or remove it (type null). The issue's report goes "Canvas changed". */
+  const handleLinkChange = useCallback((fromId: string, toId: string, type: IssueLinkType | null) => {
+    setGraph((g) => ({
+      nodes: g.nodes.map((n) =>
+        n.id !== fromId
+          ? n
+          : {
+              ...n,
+              links: type
+                ? (n.links ?? []).map((l) => (l.to === toId ? { ...l, type } : l))
+                : (n.links ?? []).filter((l) => l.to !== toId),
+            }
+      ),
+      edges: g.edges,
+    }));
+  }, []);
+
+  async function handleSpark() {
+    if (!sparkTarget || dockBusy) return;
+    const angle = pickWeakestAngle(sparkTarget, usedAngles(sparkTarget, graph.nodes));
+    if (!angle) return;
+    // Two stages of 2s each: "Turning the card…", then the angle's own label.
+    setDockBusy({ tool: "spark", stages: [SPARK_FIRST_STAGE, ANGLES[angle].stage] });
+    try {
+      const { node, edge } = await withMinDuration(sparkAngle(sparkTarget, angle), 4000);
+      setGraph((g) => ({ nodes: [...g.nodes, node], edges: [...g.edges, edge] }));
+      setSparkTargetId(null);
+    } finally {
+      setDockBusy(null);
+    }
+  }
+
   // Rebuild React Flow nodes/edges whenever the domain graph or pending set
   // changes. Cards are placed at their RAW auto-layout position here — drag
   // offsets are applied by the patch effect below, not here, so dragging
@@ -1125,6 +1261,12 @@ export function CanvasScreen({
     // like the live tip of its path.
     const continuedIds = new Set(
       visibleNodes.map((n) => n.parentId).filter((pid): pid is string => pid != null)
+    );
+
+    // "Issue 1", "Issue 2" on the quote cards once there is more than one.
+    const writtenSources = visibleNodes.filter((n) => n.kind === "source" && !n.draft);
+    const issueNumbers = new Map(
+      writtenSources.length > 1 ? writtenSources.map((n, i) => [n.id, i + 1] as const) : []
     );
 
     const nextNodes: Node<RxNodeData | GroupFrameNodeData>[] = visibleNodes.map((n) => {
@@ -1162,10 +1304,13 @@ export function CanvasScreen({
           onRestoreVersion: handleRestoreVersion,
           onFlip: handleFlip,
           downstreamCount: countVisibleDownstream(n.id, visibleNodes),
-          onViewReport: () => onFinalizeRef.current(graph),
+          onViewReport: () => onFinalizeRef.current(graph, n.id),
           selectedCount: pathSelectedCount,
           pathFeedback,
           onGroupHoverChange: setHoveredGroupId,
+          issueNumber: issueNumbers.get(n.id),
+          onSubmitIssue: handleSubmitIssue,
+          onDiscardIssue: handleDiscardIssue,
         } satisfies RxNodeData,
       };
     });
@@ -1181,6 +1326,21 @@ export function CanvasScreen({
     // groupId) attaches to that path's own frame header instead of poking
     // into the first card underneath it; group-frame-node.tsx renders a
     // matching target Handle at the header's position.
+    // The report path: every card that goes into the report (selected, or a
+    // Spark angle whose card is selected) and every card above it. Its edges
+    // draw solid, so the canvas shows the path the report is made of
+    // (docs/ideas/dock-functions.md, Cards).
+    const onPath = new Set<string>();
+    for (const n of visibleNodes) {
+      const inReport =
+        n.kind === "angle" ? !!(n.parentId && visibleById.get(n.parentId)?.selected) : n.selected;
+      if (!inReport) continue;
+      let cur: CanvasNodeData | undefined = n;
+      while (cur && !onPath.has(cur.id)) {
+        onPath.add(cur.id);
+        cur = cur.parentId ? visibleById.get(cur.parentId) : undefined;
+      }
+    }
     const nextEdges: Edge[] = visibleNodes
       .filter((n) => n.parentId)
       .map((n) => {
@@ -1191,8 +1351,30 @@ export function CanvasScreen({
           source: n.parentId as string,
           target: entersNewPath ? `frame-${n.groupId}` : n.id,
           type: "rxEdge",
+          data: { onPath: onPath.has(n.id) },
         };
       });
+    // Links between issues: newer quote to older quote, with an editable chip.
+    for (const n of writtenSources) {
+      for (const link of n.links ?? []) {
+        const toNumber = writtenSources.findIndex((w) => w.id === link.to) + 1;
+        if (toNumber === 0) continue;
+        nextEdges.push({
+          id: `link-${n.id}-${link.to}`,
+          source: n.id,
+          sourceHandle: "link-out",
+          target: link.to,
+          targetHandle: "link-in",
+          type: "rxLink",
+          data: {
+            type: link.type,
+            toNumber,
+            onChangeType: (t: IssueLinkType) => handleLinkChange(n.id, link.to, t),
+            onRemove: () => handleLinkChange(n.id, link.to, null),
+          } satisfies LinkEdgeData,
+        });
+      }
+    }
     setRfEdges(nextEdges);
   }, [
     graph,
@@ -1206,6 +1388,9 @@ export function CanvasScreen({
     handleSubmitNote,
     handleRestoreVersion,
     handleFlip,
+    handleSubmitIssue,
+    handleDiscardIssue,
+    handleLinkChange,
     setRfNodes,
     setRfEdges,
   ]);
@@ -1564,15 +1749,19 @@ export function CanvasScreen({
             <RotateCcw className="h-3.5 w-3.5" />
             Reset session
           </Button>
-          <ViewReportButton status={reportStatus} onClick={onOpenReport} />
+          <ViewReportButton
+            issues={issueReports}
+            focusIssueId={sparkTargetId ? issueOf(sparkTargetId, graph.nodes) : null}
+            onOpen={onOpenReport}
+          />
         </div>
       </header>
 
       {/* The root's paper (.paper-bg, shared with the report and tunable from
           the Experiments panel) shows through; React Flow's dots draw on top. */}
       <div ref={canvasRootRef} className="relative flex-1">
-        <SoftnessProvider value={softness}>
         <SourceStyleProvider value={sourceStyle}>
+          <SparkTargetContext.Provider value={sparkTargetId}>
           <ReactFlowProvider>
             {/* Field first, flow over it: the flow stays transparent. */}
             {background === "field" && <SurfaceFieldBackground root={canvasRootRef} settings={fieldSettings} />}
@@ -1587,6 +1776,8 @@ export function CanvasScreen({
               proOptions={proOptions}
               fitView
               minZoom={0.2}
+              onNodeClick={handleNodeClick}
+              onPaneClick={clearSparkTarget}
             >
               {background === "dots" && <Background color="var(--border)" gap={16} size={1} />}
               <Controls showInteractive={false} />
@@ -1605,7 +1796,15 @@ export function CanvasScreen({
               <RevealDirector initialGraph={fullInitial} setGraph={setGraph} />
             )}
 
-            <CanvasDock />
+            <FocusDirector request={focusRequest} />
+
+            <CanvasDock
+              onNewIssue={handleNewIssue}
+              sparkStatus={sparkStatus}
+              busy={dockBusy}
+              onSpark={handleSpark}
+              onEscape={clearSparkTarget}
+            />
 
             <ThemePanel
               themes={themeEntries}
@@ -1615,54 +1814,142 @@ export function CanvasScreen({
               }
             />
           </ReactFlowProvider>
+          </SparkTargetContext.Provider>
         </SourceStyleProvider>
-        </SoftnessProvider>
       </div>
     </div>
   );
 }
 
 /**
- * The header's way back to a saved report. Off until the first report is
- * built: that happens at the end of a path ("View report" on the last card),
- * never from here. Once a report exists this opens it straight from storage,
- * with no loader. When the canvas changed since, it still opens the saved
- * version and says it is outdated.
+ * Glides the camera to a card (a new issue) at the current zoom, once React
+ * Flow has measured and placed it. Instant for keyboard actions and under
+ * reduced motion. Rendered inside ReactFlowProvider for useReactFlow.
+ */
+function FocusDirector({ request }: { request: { id: string; instant: boolean; n: number } | null }) {
+  const { getNode, setCenter, getZoom } = useReactFlow();
+  useEffect(() => {
+    if (!request) return;
+    let raf = 0;
+    let frames = 0;
+    const go = () => {
+      frames += 1;
+      const node = getNode(request.id);
+      // Wait a few frames: the layout places a new card after it mounts.
+      if (frames > 3 && node?.width && node.height && node.positionAbsolute) {
+        const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        setCenter(node.positionAbsolute.x + node.width / 2, node.positionAbsolute.y + node.height / 2, {
+          zoom: getZoom(),
+          duration: request.instant || reduced ? 0 : 450,
+        });
+      } else if (frames < 90) {
+        raf = requestAnimationFrame(go);
+      }
+    };
+    raf = requestAnimationFrame(go);
+    return () => cancelAnimationFrame(raf);
+  }, [request, getNode, setCenter, getZoom]);
+  return null;
+}
+
+/**
+ * The header's way back to a saved report (docs/ideas/dock-functions.md,
+ * Reports). The main button opens the report of the selected card's issue,
+ * or, with nothing selected, the issue whose report was built last. It is off
+ * while that issue has no report: a report is built at the end of a path,
+ * never from here. The arrow opens a menu of every issue and its state.
  */
 function ViewReportButton({
-  status,
-  onClick,
+  issues,
+  focusIssueId,
+  onOpen,
 }: {
-  status: "none" | "current" | "outdated";
-  onClick: () => void;
+  issues: IssueReportState[];
+  focusIssueId: string | null;
+  onOpen: (issueId: string) => void;
 }) {
-  if (status === "none") {
-    return (
+  const latestBuilt = [...issues]
+    .filter((i) => i.latest)
+    .sort((a, b) => b.latest!.createdAt - a.latest!.createdAt)[0];
+  const target = issues.find((i) => i.issue.id === focusIssueId) ?? latestBuilt ?? issues[0];
+  if (!target) return null;
+  const number = issues.indexOf(target) + 1;
+  const many = issues.length > 1;
+
+  const main =
+    target.status === "none" ? (
       <Tooltip>
         <TooltipTrigger asChild>
           {/* A disabled button fires no pointer events, so the span carries the tooltip. */}
           <span tabIndex={0} className="inline-flex">
-            <Button variant="cta" size="sm" disabled>
+            <Button variant="cta" size="sm" disabled className={cn(many && "rounded-r-none")}>
               <FileText className="h-3.5 w-3.5" />
               View report
             </Button>
           </span>
         </TooltipTrigger>
-        <TooltipContent side="bottom">Reach the end of a path to build your report</TooltipContent>
+        <TooltipContent side="bottom">
+          {many ? `Issue ${number} has no report yet. ` : ""}Reach the end of a path to build it.
+        </TooltipContent>
       </Tooltip>
+    ) : (
+      <Button
+        variant={target.status === "outdated" ? "outline-cta" : "cta"}
+        size="sm"
+        className={cn(many && "rounded-r-none")}
+        onClick={() => onOpen(target.issue.id)}
+      >
+        <FileText className="h-3.5 w-3.5" />
+        {many ? `View report · Issue ${number}` : "View report"}
+      </Button>
     );
-  }
+
   return (
     <div className="flex items-center gap-2">
-      {status === "outdated" && (
+      {target.status === "outdated" && (
         <span className="font-mono text-[length:var(--text-meta)] uppercase tracking-wide text-muted-foreground">
           Canvas changed
         </span>
       )}
-      <Button variant={status === "outdated" ? "outline-cta" : "cta"} size="sm" onClick={onClick}>
-        <FileText className="h-3.5 w-3.5" />
-        View report
-      </Button>
+      <div className="flex items-center">
+        {main}
+        {many && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant={target.status === "outdated" || target.status === "none" ? "outline-cta" : "cta"}
+                size="sm"
+                aria-label="All issues and their reports"
+                className="rounded-l-none border-l-0 px-1.5"
+              >
+                <ChevronDown className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-72">
+              {issues.map((item, i) => (
+                <DropdownMenuItem
+                  key={item.issue.id}
+                  disabled={item.status === "none"}
+                  onSelect={() => onOpen(item.issue.id)}
+                  className="flex items-start gap-2"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs font-medium text-foreground">Issue {i + 1}</span>
+                    <span className="block truncate text-[11px] text-muted-foreground">{item.issue.title}</span>
+                  </span>
+                  <span className="shrink-0 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
+                    {item.status === "none"
+                      ? "No report yet"
+                      : item.status === "outdated"
+                        ? `v${item.latest!.version} · Canvas changed`
+                        : `v${item.latest!.version}`}
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
     </div>
   );
 }

@@ -3,6 +3,8 @@ import {
   carryTasks,
   getIssue,
   isOutdated,
+  issueOf,
+  issueStates,
   latestReport,
   reportedIssues,
   reportsForIssue,
@@ -16,7 +18,7 @@ function node(id: string, patch: Partial<CanvasNodeData> = {}): CanvasNodeData {
 }
 
 const GRAPH: CanvasGraph = {
-  nodes: [node("src", { kind: "source", body: "I can't find a job.", depth: 0 }), node("a")],
+  nodes: [node("src", { kind: "source", body: "I can't find a job.", depth: 0 }), node("a", { parentId: "src" })],
   edges: [],
 };
 
@@ -99,5 +101,41 @@ describe("carryTasks", () => {
   });
   it("drops tasks the new version no longer proposes", () => {
     expect(carryTasks([task("old", "Gone")], [task("n1", "Call")]).map((t) => t.title)).toEqual(["Call"]);
+  });
+});
+
+describe("several issues on one canvas", () => {
+  const TWO: CanvasGraph = {
+    nodes: [
+      node("s1", { kind: "source", body: "I can't find a job.", depth: 0 }),
+      node("a", { parentId: "s1" }),
+      node("a2", { parentId: "a", depth: 2 }),
+      node("s2", { kind: "source", body: "Is my search method wrong?", depth: 0 }),
+      node("b", { parentId: "s2" }),
+    ],
+    edges: [],
+  };
+
+  it("finds each card's issue by walking to its source", () => {
+    expect(issueOf("a2", TWO.nodes)).toBe("s1");
+    expect(issueOf("b", TWO.nodes)).toBe("s2");
+    expect(issueOf("s2", TWO.nodes)).toBe("s2");
+    expect(issueOf("missing", TWO.nodes)).toBeNull();
+  });
+
+  it("marks only the issue whose own tree changed as outdated", () => {
+    const r1 = report("s1", 1, 1, TWO);
+    const changedOther = { ...TWO, nodes: TWO.nodes.map((n) => (n.id === "b" ? { ...n, selected: true } : n)) };
+    expect(isOutdated(r1, changedOther)).toBe(false);
+    const changedOwn = { ...TWO, nodes: TWO.nodes.map((n) => (n.id === "a2" ? { ...n, selected: true } : n)) };
+    expect(isOutdated(r1, changedOwn)).toBe(true);
+  });
+
+  it("lists every issue with its state", () => {
+    const states = issueStates([report("s1", 2, 1, TWO)], TWO);
+    expect(states.map((s) => [s.issue.id, s.status, s.latest?.version ?? null])).toEqual([
+      ["s1", "current", 2],
+      ["s2", "none", null],
+    ]);
   });
 });

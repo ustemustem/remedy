@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import type { DashboardNeed } from "@/lib/graph";
 import { FitScore, FitBars } from "./fit-meter";
 import { EvidenceRow } from "./evidence-row";
+import { AngleNotes } from "./angle-notes";
 
 /**
  * Section 03's hero card. Shares one anatomy with PrescriptionCardCompact — the
@@ -45,6 +46,8 @@ export function PrescriptionCard({
             <p className="text-[length:var(--text-body)] text-muted-foreground">{node.body}</p>
           </div>
         </div>
+
+        <AngleNotes need={need} />
 
         {need.fit && (
           <div className="border-t border-border pt-3">

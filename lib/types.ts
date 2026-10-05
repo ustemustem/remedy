@@ -5,7 +5,9 @@ export type NodeKind =
   | "recommendation"
   | "counter-argument"
   | "revision"
-  | "clarifying-question";
+  | "clarifying-question"
+  /** A Spark card: one side of its parent card, seen from an angle (lib/angles.ts). */
+  | "angle";
 
 /**
  * Context-note model: a card no longer spawns comment children when the
@@ -181,6 +183,24 @@ export interface CanvasNodeData {
   groupLabel?: string;
   /** paid-placement flag — a sponsored need never takes the hero slot. */
   transparency?: "organic" | "sponsored";
+  /** Angle cards only: which side of the parent card this one shows. */
+  angle?: "pushback" | "risk" | "step";
+  /** Source cards only: a new issue the user has not written yet (New issue
+   *  in the dock). A draft has no tree, no report, and can be discarded. */
+  draft?: boolean;
+  /** Draft source cards only: AI-suggested questions to start from. */
+  suggestions?: string[];
+  /** Source cards only: earlier issues this one builds on (newer → older). */
+  links?: IssueLink[];
+}
+
+/** How one issue builds on an earlier one (docs/ideas/dock-functions.md, Link). */
+export type IssueLinkType = "follows-up" | "digs-into";
+
+export interface IssueLink {
+  /** The earlier issue's source node id. */
+  to: string;
+  type: IssueLinkType;
 }
 
 export interface CanvasEdgeData {

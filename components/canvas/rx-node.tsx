@@ -10,6 +10,8 @@ import {
   ThumbsDown,
   ArrowRight,
   ArrowDown,
+  FileMinus,
+  FilePlus,
   Quote,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -25,9 +27,10 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { OptionPicker } from "./option-picker";
 import { TypewriterText } from "./typewriter-text";
-import { useSoftness } from "./softness-context";
 import { useSourceStyle } from "./source-style-context";
-import { getSquirclePath } from "@/lib/squircle";
+import { ANGLES } from "@/lib/angles";
+import { ANGLE_ICON } from "./dock-icons";
+import { useIsSparkTarget } from "./spark-target-context";
 import AITextLoading from "@/components/kokonutui/ai-text-loading";
 import type { CanvasNodeData, FeedbackContext, HighlightSpan } from "@/lib/types";
 
@@ -85,6 +88,12 @@ export interface RxNodeData {
   pathFeedback?: FeedbackContext;
   /** Path-framing hover — lights up the card's path frame when hovering this card. */
   onGroupHoverChange?: (groupId: string | null) => void;
+  /** Source cards, when the canvas holds more than one issue: "Issue 2". */
+  issueNumber?: number;
+  /** Draft source cards (New issue): write the issue and grow its tree. */
+  onSubmitIssue?: (nodeId: string, text: string) => void;
+  /** Draft source cards: throw the unwritten issue away. */
+  onDiscardIssue?: (nodeId: string) => void;
 }
 
 const KIND_LABEL: Record<CanvasNodeData["kind"], string> = {
@@ -93,6 +102,7 @@ const KIND_LABEL: Record<CanvasNodeData["kind"], string> = {
   "counter-argument": "Counter-argument",
   revision: "Revision",
   "clarifying-question": "Clarifying question",
+  angle: "Angle",
 };
 
 const SELECTABLE_KINDS: CanvasNodeData["kind"][] = [
@@ -143,9 +153,15 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
     selectedCount,
     pathFeedback,
     onGroupHoverChange,
+    issueNumber,
+    onSubmitIssue,
+    onDiscardIssue,
   } = data;
 
   const isClarifying = nodeData.kind === "clarifying-question";
+  const isAngle = nodeData.kind === "angle" && !!nodeData.angle;
+  // The card Spark will test (the last one clicked). See spark-target-context.tsx.
+  const isSparkTarget = useIsSparkTarget(id);
   const isChoice = nodeData.cardType === "choice";
   // The conclusion cites the actual theme this path leaned toward/away
   // from, when there is one, instead of always repeating the same generic
@@ -174,90 +190,30 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
    *  does, it owns the free-text answer and the standalone note panel is
    *  suppressed so the card has a single commit control. */
   const hasPicker = isChoice && Boolean(nodeData.question) && Boolean(nodeData.options);
-  const eyebrowLabel = KIND_LABEL[nodeData.kind];
+  const isDraft = nodeData.kind === "source" && !!nodeData.draft;
+  const eyebrowLabel =
+    nodeData.kind === "source" && issueNumber ? `Issue ${issueNumber}` : KIND_LABEL[nodeData.kind];
 
   const isSource = nodeData.kind === "source";
   const sourceStyle = useSourceStyle();
   const isRail = isSource && sourceStyle === "rail";
 
-  // Apple-style corner smoothing (see softness-context.tsx / lib/squircle.ts)
-  // — replaces the plain circular border-radius with a superellipse curve.
-  // Inlined directly (not a separate custom hook) — a custom hook wrapping
-  // this exact ref+effect pattern silently never ran its effect for this
-  // React Flow custom node (every other hook in the component fires fine;
-  // isolating it down to "hook defined in another file" vs "hook inlined
-  // here" was the only thing that made the difference, root cause unclear).
-  // Must read offsetWidth/offsetHeight, not getBoundingClientRect() — this
-  // card lives inside React Flow's canvas, scaled by the current zoom via a
-  // CSS transform on an ancestor, and clip-path's own coordinate space is
-  // the element's untransformed layout box, not its on-screen (zoomed) box.
-  // A polling loop, not ResizeObserver, for the same reason as
-  // canvas-screen.tsx's own measuredSizes loop: ResizeObserver never fires
-  // in this project's dev environment.
-  const { radius: softnessRadius, smoothing } = useSoftness();
-  const squircleRef = useRef<HTMLDivElement>(null);
-  // Holds the raw path `d` string plus the box it was measured for — reused
-  // both for the clip-path (which reshapes the card) and for an SVG stroke
-  // overlay that draws the actual border. A plain CSS `border` can't be used
-  // here: it's painted as a sharp rectangle (borderRadius stays 0 so the
-  // corner math is exact), and clip-path then cuts that rectangle down to
-  // the curve — anywhere the curve pulls in from the straight edge by more
-  // than the border's own width, the 1px border band falls outside the
-  // curve and gets clipped away entirely, leaving the corner borderless.
-  // Stroking the exact same path sidesteps that: the stroke IS the curve.
-  const [squircle, setSquircle] = useState<
-    { path: string; width: number; height: number } | undefined
-  >(undefined);
-  const lastSquircleSizeRef = useRef({ width: 0, height: 0 });
-  useEffect(() => {
-    lastSquircleSizeRef.current = { width: 0, height: 0 };
-    let raf: number;
-    const measure = () => {
-      const el = squircleRef.current;
-      if (el) {
-        const width = el.offsetWidth;
-        const height = el.offsetHeight;
-        const last = lastSquircleSizeRef.current;
-        if (width > 0 && height > 0 && (width !== last.width || height !== last.height)) {
-          lastSquircleSizeRef.current = { width, height };
-          // "Stamp" identity deliberately drops the squircle — a plain sharp
-          // corner is one more way Source reads as "not an AI suggestion
-          // card" rather than another shape variant of the same thing.
-          // "Rail" also drops it: the approved mockup (source-rail-textures.html)
-          // clips its rail with plain `border-radius` + `overflow-hidden`, not
-          // a clip-path — the squircle's SVG stroke overlay is only ever
-          // half-visible at any curve (half its width is clipped away by the
-          // very same clip-path it's meant to outline), which reads fine
-          // against a flat card but reads as the rail "spilling past the
-          // border" wherever the rail's solid color meets the curve. Plain
-          // CSS radius + overflow-hidden clips the rail's corner exactly,
-          // with no stroke-alignment illusion to fight. The clarifying-
-          // question card's two-zone layout has the exact same problem —
-          // its status-zone div is a flat rectangle sitting flush against
-          // the card's own rounded top corners, so it drops the squircle
-          // too rather than fighting the same corner-bleed illusion again.
-          const skipSquircle =
-            (isSource && (sourceStyle === "stamp" || sourceStyle === "rail")) || isClarifying;
-          setSquircle(
-            softnessRadius > 0 && !skipSquircle
-              ? { path: getSquirclePath(width, height, softnessRadius, smoothing), width, height }
-              : undefined
-          );
-        }
+  // Cards use a CSS squircle (Card: --radius-card-shaped + corner-shape,
+  // drawn by the browser) and a 1.25px CSS border. A clip-path with an SVG
+  // stroke was tried and dropped on 2026-10-01: the stroke never sat cleanly
+  // on the clipped edge. The selected
+  // card (Spark's target) gets a soft green ring and a faint green tint.
+  const selectedStyle = isSparkTarget
+    ? {
+        boxShadow: "0 0 0 2px color-mix(in srgb, var(--primary) 55%, transparent)",
+        backgroundColor: "color-mix(in srgb, var(--primary) 3%, var(--card))",
       }
-      raf = requestAnimationFrame(measure);
-    };
-    raf = requestAnimationFrame(measure);
-    return () => cancelAnimationFrame(raf);
-  }, [softnessRadius, smoothing, isSource, sourceStyle, isClarifying]);
+    : undefined;
 
-  // Click anywhere on the card to toggle "Select" — except on a nested
-  // button (the option picker, the collapsible trigger, "Prefer this option"...).
-  function handleCardClick(e: React.MouseEvent<HTMLDivElement>) {
-    if (!canSelect) return;
-    if ((e.target as HTMLElement).closest("button")) return;
-    onSelectToggle(id);
-  }
+  // A click on the card only selects it (Spark's target, View report's issue;
+  // canvas-screen.tsx's onNodeClick). It no longer adds the card to the
+  // report: that happens through "Prefer this option", "Select and continue",
+  // or the card's own "In report" mark below (docs/ideas/dock-functions.md).
 
   // ---------------------------------------------------------------------
   // Context note — local draft + "see note" panel toggle. Uncontrolled
@@ -340,6 +296,25 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
           suggestion. */}
       {!isSource && !isClarifying && (
         <div className="nodrag nopan absolute -top-9 left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-[var(--radius-surface)] border border-border bg-card p-1 opacity-0 shadow-sm transition-opacity group-hover/node:opacity-100">
+          {canSelect && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-pressed={nodeData.selected}
+                  aria-label={nodeData.selected ? "Remove from report" : "Add to report"}
+                  onClick={() => onSelectToggle(id)}
+                  className={cn(
+                    "flex h-6 w-6 items-center justify-center text-muted-foreground hover:text-primary",
+                    nodeData.selected && "text-primary"
+                  )}
+                >
+                  {nodeData.selected ? <FileMinus className="h-3.5 w-3.5" /> : <FilePlus className="h-3.5 w-3.5" />}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{nodeData.selected ? "Remove from report" : "Add to report"}</TooltipContent>
+            </Tooltip>
+          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -380,19 +355,10 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
       <GripVertical className="pointer-events-none absolute top-1/2 -right-5 h-4 w-4 -translate-y-1/2 text-muted-foreground opacity-0 transition-opacity group-hover/node:opacity-100" />
 
       <Card
-        ref={squircleRef}
-        onClick={handleCardClick}
-        style={
-          squircle
-            ? // The SVG overlay below draws the real border along this same
-              // path — the box's own CSS border is switched off so it can't
-              // show through as a sharp-cornered rectangle behind the curve.
-              { clipPath: `path('${squircle.path}')`, borderRadius: 0, borderColor: "transparent" }
-            : undefined
-        }
+        style={selectedStyle}
         className={cn(
-          "relative w-80 gap-3 border-border py-3 shadow-none transition-opacity",
-          canSelect ? "cursor-pointer" : "cursor-default",
+          "relative w-80 gap-3 border-[1.25px] border-border py-3 shadow-none transition-opacity",
+          isClarifying ? "cursor-default" : "cursor-pointer",
           "animate-in fade-in-0 slide-in-from-bottom-2 duration-300",
           pending && "opacity-60",
           nodeData.feedback === "like" && "ring-1 ring-primary/40",
@@ -435,9 +401,26 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
 
         <Handle type="target" position={Position.Top} className="!bg-border" />
         <Handle type="source" position={Position.Bottom} className="!bg-border" />
+        {isSource && (
+          // Anchors for links between issues (link-edge.tsx): newer issue's
+          // left side to the older issue's right side. Not draggable.
+          <>
+            <Handle type="source" id="link-out" position={Position.Left} isConnectable={false} className="!opacity-0" />
+            <Handle type="target" id="link-in" position={Position.Right} isConnectable={false} className="!opacity-0" />
+          </>
+        )}
 
         <div className={isRail ? "flex flex-col py-(--card-spacing)" : "contents"}>
-        {isClarifying ? (
+        {isDraft ? (
+          <DraftIssueBody
+            nodeData={nodeData}
+            pending={pending}
+            onSubmit={(text) => onSubmitIssue?.(id, text)}
+            onDiscard={() => onDiscardIssue?.(id)}
+          />
+        ) : isAngle ? (
+          <AngleCardBody nodeData={nodeData} />
+        ) : isClarifying ? (
           <>
             {/* Reached the revision depth cap — this card no longer asks
                 another question, it states the conclusion the mock AI has
@@ -493,10 +476,9 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
             }}
             aria-expanded={noteDetailOpen}
             className={cn(
-              // No border/radius of its own — the outer Card's squircle clip
-              // already sculpts this strip's top corners to match every
-              // other card exactly, and its own SVG stroke (rendered last,
-              // see below) is the single border for the whole card.
+              // No border/radius of its own — the outer Card's rounded,
+              // overflow-hidden box already shapes this strip's top corners,
+              // and the Card's own border is the single border for the card.
               "nodrag -mt-4 mb-3 flex w-full cursor-pointer items-center justify-between gap-2 px-[var(--card-px)] py-2 text-[length:var(--text-meta)] transition-colors",
               isBranchOrigin ? "bg-cta/10 hover:bg-cta/15" : "bg-primary/10 hover:bg-primary/15"
             )}
@@ -533,8 +515,8 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
           <div
             className={cn(
               // Bottom border only — an internal divider from the header
-              // below, not an attempt at the card's own outer edge (that's
-              // the squircle stroke's job, same reasoning as the strip above).
+              // below, not an attempt at the card's own outer edge (the
+              // Card's border, same reasoning as the strip above).
               "-mt-6 mb-3 space-y-2 border-b border-border px-[var(--card-px)] py-2.5 text-[length:var(--text-meta)] text-muted-foreground",
               isBranchOrigin ? "bg-cta/5" : "bg-primary/5"
             )}
@@ -772,30 +754,143 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
         )}
         </div>
 
-        {/* Painted LAST (on top of everything, including the origin strip's
-            and note panel's own tinted backgrounds) so this single stroke is
-            always the card's one visible border — see the strip/panel below,
-            which carry no border of their own for exactly this reason: a
-            plain CSS border-radius corner never matches a squircle curve at
-            the same radius number, so a second, independent border there
-            would always read as a mismatched, separately-rounded shape
-            stacked on the card rather than one continuous outline. */}
-        {squircle && (
-          <svg
-            className="pointer-events-none absolute inset-0 h-full w-full"
-            viewBox={`0 0 ${squircle.width} ${squircle.height}`}
-            aria-hidden="true"
-          >
-            <path
-              d={squircle.path}
-              fill="none"
-              stroke="var(--border)"
-              strokeWidth={2}
-              strokeLinejoin="round"
-            />
-          </svg>
-        )}
       </Card>
     </div>
+  );
+}
+
+/**
+ * A Spark card: one side of its parent card, seen from an angle (lib/angles.ts).
+ * A neutral strip with the angle's icon and question, then the title and body.
+ * It has no report toggle: it goes into the report inside the card it tests,
+ * whenever that card is in the report (components/dashboard/angle-notes.tsx).
+ */
+function AngleCardBody({ nodeData }: { nodeData: CanvasNodeData }) {
+  const angle = ANGLES[nodeData.angle!];
+  const Icon = ANGLE_ICON[angle.id];
+  return (
+    <>
+      <div
+        className="-mt-4 mb-1 flex items-center gap-[7px] px-[var(--card-px)] py-2 font-mono text-[11px] font-bold tracking-[0.05em] text-foreground uppercase"
+        style={{ background: "color-mix(in srgb, var(--foreground) 7%, var(--card))" }}
+      >
+        <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden="true" />
+        {angle.question}
+      </div>
+      <CardHeader className="px-[var(--card-px)]">
+        <p className="text-sm font-semibold text-foreground">{nodeData.title}</p>
+      </CardHeader>
+      <CardContent className="space-y-3 px-[var(--card-px)]">
+        <p className="nodrag cursor-text text-[13px] leading-[1.45] text-muted-foreground select-text">
+          <TypewriterText text={nodeData.body} />
+        </p>
+        <p className="font-mono text-[length:var(--text-meta)] tracking-wide text-muted-foreground uppercase">
+          Joins the report with the card it tests
+        </p>
+      </CardContent>
+    </>
+  );
+}
+
+const ISSUE_LOADING_STAGES = ["Reading…", "Analyzing…", "Preparing canvas…"];
+
+/**
+ * A new issue the user has not written yet (New issue in the dock). The
+ * suggested questions come from the session; the user picks one or writes
+ * their own. "Add issue" grows the issue's tree next to the others.
+ */
+function DraftIssueBody({
+  nodeData,
+  pending,
+  onSubmit,
+  onDiscard,
+}: {
+  nodeData: CanvasNodeData;
+  pending: boolean;
+  onSubmit: (text: string) => void;
+  onDiscard: () => void;
+}) {
+  const [text, setText] = useState("");
+  const canSubmit = text.trim().length > 0 && !pending;
+  // Focus after the camera's glide (450ms), without scrolling: autoFocus
+  // fires while React Flow is still placing the card and loses the focus.
+  const fieldRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const t = window.setTimeout(() => fieldRef.current?.focus({ preventScroll: true }), 500);
+    return () => window.clearTimeout(t);
+  }, []);
+  return (
+    <>
+      <CardHeader className="px-[var(--card-px)]">
+        <CardTitle className="font-mono text-[length:var(--text-label)] font-bold tracking-wide text-muted-foreground uppercase">
+          New issue
+        </CardTitle>
+        <p className="text-base font-semibold text-foreground">Untitled issue</p>
+      </CardHeader>
+      <CardContent className="space-y-3 px-[var(--card-px)]">
+        <Textarea
+          ref={fieldRef}
+          value={text}
+          disabled={pending}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && canSubmit) {
+              e.preventDefault();
+              onSubmit(text.trim());
+            }
+          }}
+          placeholder="What else is weighing on you?"
+          rows={3}
+          className="nodrag"
+        />
+        {nodeData.suggestions && nodeData.suggestions.length > 0 && !pending && (
+          <div className="flex flex-wrap gap-1.5">
+            {nodeData.suggestions.map((q) => (
+              <button
+                key={q}
+                type="button"
+                onClick={() => setText(q)}
+                className="nodrag rounded-full border border-border bg-background px-2.5 py-1 text-left text-[length:var(--text-label)] text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="flex items-center justify-between pt-1">
+          <Button
+            size="sm"
+            variant="cta"
+            className="nodrag btn-thinking"
+            data-thinking={pending}
+            disabled={!canSubmit}
+            onClick={() => onSubmit(text.trim())}
+          >
+            {pending ? (
+              <>
+                <span className="btn-sweep" aria-hidden="true" />
+                <AITextLoading
+                  texts={ISSUE_LOADING_STAGES}
+                  interval={2000}
+                  blur
+                  stableWidth
+                  className="relative z-[1] text-[length:var(--text-label)] text-current"
+                />
+              </>
+            ) : (
+              <>
+                Add issue
+                <ArrowRight className="h-3.5 w-3.5" />
+              </>
+            )}
+          </Button>
+          {!pending && (
+            <Button size="sm" variant="ghost" className="nodrag" onClick={onDiscard}>
+              Discard
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </>
   );
 }

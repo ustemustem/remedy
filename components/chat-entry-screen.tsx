@@ -11,6 +11,10 @@ import { HEADLINE_PROMPTS } from "@/lib/headlinePrompts";
 import { INDUSTRIES, EXAMPLE_PROMPTS_BY_INDUSTRY, type Industry } from "@/lib/examplePrompts";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import {
+  StandaloneSurfaceField,
+  type SurfaceFieldSettings,
+} from "@/components/canvas/surface-field-background";
 
 const TRIGGER_DEBOUNCE_MS = 3000;
 const LOADING_STAGES = ["Reading…", "Analyzing…", "Preparing canvas…"];
@@ -19,10 +23,14 @@ const HEADLINE_ROTATE_MS = 5000;
 export function ChatEntryScreen({
   onSubmit,
   loading,
+  fieldSettings,
 }: {
   onSubmit: (text: string) => void;
   loading: boolean;
+  /** The canvas's Surface Field knobs, so both grounds match. */
+  fieldSettings?: SurfaceFieldSettings;
 }) {
+  const mainRef = useRef<HTMLElement>(null);
   const [text, setText] = useState("");
   const [triggers, setTriggers] = useState<ThoughtTrigger[]>([]);
   const [headlineIndex, setHeadlineIndex] = useState(0);
@@ -88,7 +96,12 @@ export function ChatEntryScreen({
   }
 
   return (
-    <main className="chat-entry-bg flex h-full flex-col items-center justify-center overflow-y-auto px-6 py-12">
+    <main ref={mainRef} className="chat-entry-bg flex h-full flex-col items-center justify-center overflow-y-auto px-6 py-12">
+      {/* The canvas's Surface Field, fading out toward the top of the page. The
+          chat box clears it the way a card does on the canvas. */}
+      <div aria-hidden="true" className="chat-entry-field pointer-events-none absolute inset-0">
+        <StandaloneSurfaceField root={mainRef} surface={textareaRef} settings={fieldSettings} />
+      </div>
       <div className="relative z-10 w-full max-w-xl space-y-6">
         <div className="flex justify-center">
           {/* eslint-disable-next-line @next/next/no-img-element -- static local SVG, no optimization needed */}

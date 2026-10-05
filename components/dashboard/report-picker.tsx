@@ -14,24 +14,33 @@ import { latestReport, reportedIssues, reportsForIssue, type SavedReport } from 
 export function ReportPicker({
   report,
   reports,
+  issueOrder = [],
   onSelect,
 }: {
   report: SavedReport;
   reports: SavedReport[];
+  /** Issue ids in canvas order, so "Issue 2" here is "Issue 2" on the canvas. */
+  issueOrder?: string[];
   onSelect: (reportId: string) => void;
 }) {
-  const issues = reportedIssues(reports);
+  const rank = (id: string) => {
+    const i = issueOrder.indexOf(id);
+    return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+  };
+  const issues = [...reportedIssues(reports)].sort((a, b) => rank(a.id) - rank(b.id));
+  const numberOf = (id: string) =>
+    issueOrder.includes(id) ? issueOrder.indexOf(id) + 1 : issues.findIndex((i) => i.id === id) + 1;
   const versions = reportsForIssue(reports, report.issueId);
-  const issueLabel = issues.findIndex((i) => i.id === report.issueId) + 1;
+  const issueLabel = numberOf(report.issueId);
 
   return (
     <div className="flex items-center gap-1">
       <PickerMenu
         label="Issue"
         trigger={<span className="max-w-[18ch] truncate">Issue {issueLabel}</span>}
-        items={issues.map((issue, i) => ({
+        items={issues.map((issue) => ({
           id: issue.id,
-          primary: `Issue ${i + 1}`,
+          primary: `Issue ${numberOf(issue.id)}`,
           secondary: issue.title,
           active: issue.id === report.issueId,
           onPick: () => {

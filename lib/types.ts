@@ -107,6 +107,9 @@ export interface ReportData {
    *  after the report opens and is then saved here, so a saved report never
    *  runs web_search again. */
   evidence?: EvidenceExample[][];
+  /** What this issue's accepted links read from the issues they point to.
+   *  Built with the version, so a saved report keeps the reading it had. */
+  links?: LinkReading[];
 }
 
 export interface CanvasNodeData {
@@ -201,6 +204,47 @@ export interface IssueLink {
   /** The earlier issue's source node id. */
   to: string;
   type: IssueLinkType;
+  /** Remedy proposed this link and the user has not accepted it yet. A
+   *  suggested link shows faint on the canvas and never reaches a report.
+   *  Absent on links the user made or accepted (and on older sessions). */
+  suggested?: true;
+}
+
+/** What a linked issue tells this issue's report (lib/links.ts), built with the
+ *  report and saved with its version. Shown as the band above Section 01. */
+export interface LinkReading {
+  toIssueId: string;
+  /** The linked issue's number on the canvas, as it was when the report was built. */
+  toNumber: number;
+  /** The linked issue's own words. */
+  toTitle: string;
+  type: IssueLinkType;
+  /** Where the reading came from: the linked issue's latest report, or its
+   *  canvas when it has no report yet. */
+  source: "report" | "canvas";
+  /** The linked report's version, when `source` is "report". */
+  version?: number;
+  /** The linked issue's leading pick (its report's first need, or its first
+   *  selected card), for the "Picked" line of the report section. */
+  topPick?: string;
+  /** The big line of the band. */
+  headline: string;
+  /** One supporting sentence under it. */
+  detail: string;
+  /** Digs into only: how likely this issue is the cause of the linked one. */
+  verdict?: LinkVerdict;
+  /** Follows up from a report only: where the linked issue's tasks stand. */
+  tasks?: LinkTaskTally;
+}
+
+export type LinkVerdict = "likely" | "partly" | "unlikely";
+
+export interface LinkTaskTally {
+  done: number;
+  doing: number;
+  todo: number;
+  /** Up to three tasks worth naming, done ones first. */
+  named: { title: string; status: "done" | "doing" | "todo" }[];
 }
 
 export interface CanvasEdgeData {

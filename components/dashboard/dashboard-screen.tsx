@@ -11,6 +11,7 @@ import { NextStepsCard } from "@/components/tasks/next-steps-card";
 import { TasksView } from "@/components/tasks/tasks-view";
 import { Segmented } from "@/components/tasks/segmented";
 import { PrescriptionReport } from "./prescription-report";
+import { CarriedOver, carriedOverTitle } from "./carried-over";
 import { ExitPoll } from "./exit-poll";
 import { ReportPicker } from "./report-picker";
 
@@ -26,6 +27,8 @@ export function DashboardScreen({
   onTasksChange,
   onEvidence,
   onBackToCanvas,
+  onOpenIssue,
+  onShowIssue,
   onReset,
 }: {
   /** The saved version on screen. It renders from its own canvas snapshot and
@@ -46,6 +49,10 @@ export function DashboardScreen({
   onEvidence: (evidence: EvidenceExample[][]) => void;
   /** Returns to the canvas without resetting — the graph is untouched by Finalize. */
   onBackToCanvas: () => void;
+  /** The link band: open a linked issue's latest report. */
+  onOpenIssue: (issueId: string) => void;
+  /** The link band: back to the canvas, on a linked issue that has no report. */
+  onShowIssue: (issueId: string) => void;
   onReset: () => void;
 }) {
   // Report redesign / animation handoff: on mount (right after the loader's
@@ -184,6 +191,21 @@ export function DashboardScreen({
                 nodes={graph.nodes}
                 preloaded={report.data}
                 onEvidence={onEvidence}
+                carriedOver={
+                  report.data.links?.length
+                    ? {
+                        title: carriedOverTitle(report.data.links),
+                        content: (
+                          <CarriedOver
+                            readings={report.data.links}
+                            hasReport={(id) => reports.some((r) => r.issueId === id)}
+                            onOpenIssue={onOpenIssue}
+                            onShowIssue={onShowIssue}
+                          />
+                        ),
+                      }
+                    : undefined
+                }
                 railTop={
                   tasks.length > 0 ? (
                     <NextStepsCard tasks={tasks} onOpenTasks={() => openTasks()} onOpenTask={openTasks} />

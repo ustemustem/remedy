@@ -67,6 +67,7 @@ export function PrescriptionReport({
   preloaded,
   onEvidence,
   railTop,
+  carriedOver,
 }: {
   nodes: CanvasNodeData[];
   preloaded?: ReportData | null;
@@ -75,6 +76,9 @@ export function PrescriptionReport({
   /** Rendered first in the sticky rail, so it stays in view while the user
    *  reads (the Next steps card). */
   railTop?: ReactNode;
+  /** What linked issues carry over (components/dashboard/carried-over.tsx).
+   *  When present it is Section 01 and the other sections move down one. */
+  carriedOver?: { title: string; content: ReactNode };
 }) {
   // Memoized on `nodes` specifically: deriveDashboardNeeds/deriveThemeEntries
   // build fresh arrays every call, and PrescriptionReport re-renders on every
@@ -198,7 +202,12 @@ export function PrescriptionReport({
             {railTop}
           </div>
         )}
-        <ReportSection index={1} title="What we understood" delayMs={60}>
+        {carriedOver && (
+          <ReportSection index={1} title={carriedOver.title} delayMs={40}>
+            <div className="-mx-[var(--card-px)] -my-4">{carriedOver.content}</div>
+          </ReportSection>
+        )}
+        <ReportSection index={carriedOver ? 2 : 1} title="What we understood" delayMs={60}>
           <div className="space-y-3">
             <UnderstoodSummary
               needs={needs}
@@ -230,7 +239,7 @@ export function PrescriptionReport({
         </div>
 
         <div className="report-reveal-in mt-4" style={{ animationDelay: "220ms" }}>
-          <SectionHead index={2} title="Your prescription" />
+          <SectionHead index={carriedOver ? 3 : 2} title="Your prescription" />
           <div className="space-y-3">
             {fits === null ? (
               <AITextLoading

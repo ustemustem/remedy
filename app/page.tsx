@@ -36,6 +36,7 @@ import {
   type SavedReport,
 } from "@/lib/reports";
 import { deriveDashboardNeeds } from "@/lib/graph";
+import { followUpTasks, linkContexts } from "@/lib/links";
 import { buildMockTasks } from "@/lib/tasks-mock";
 import { loadingCycleMs, withMinDuration } from "@/lib/timing";
 import type { CanvasGraph, ReportData, Step } from "@/lib/types";
@@ -58,6 +59,8 @@ export default function Home() {
   // Reports are saved with the session (lib/reports.ts). The loader runs only
   // to build a new version; opening a saved one reads it from storage.
   const [activeReportId, setActiveReportId] = useState<string | null>(null);
+  // "Show on canvas" from a report's link band: the canvas opens on that issue.
+  const [canvasFocusId, setCanvasFocusId] = useState<string | null>(null);
 
   // Sessions live in localStorage — only readable after mount.
   useEffect(() => {
@@ -211,7 +214,14 @@ export default function Home() {
     // A report reads and keeps only its own issue's tree.
     const builtGraph = issueGraph(graph, builtIssue.id);
     const previous = latestReport(reports, builtIssue.id);
-    const freshTasks = buildMockTasks(deriveDashboardNeeds(builtGraph.nodes));
+    // A follow-up leaves out what the earlier issue finished and starts where it stalled.
+    const followUp = linkContexts(graph, reports, builtIssue.id).some((c) => c.type === "follows-up");
+    const freshTasks = followUpTasks(
+      buildMockTasks(deriveDashboardNeeds(builtGraph.nodes), { followUp }),
+      graph,
+      reports,
+      builtIssue.id
+    );
     const report: SavedReport = {
       id: newReportId(),
       issueId: builtIssue.id,
@@ -251,6 +261,7 @@ export default function Home() {
   }
 
   function handleBackToCanvas() {
+    setCanvasFocusId(null);
     setStep("canvas");
   }
 
@@ -294,6 +305,7 @@ export default function Home() {
   const content = transitioning ? (
       <ReportLoader
         graph={issueGraph(graph, buildIssueId ?? getIssue(graph)?.id ?? "")}
+        links={linkContexts(graph, reports, buildIssueId ?? getIssue(graph)?.id ?? "")}
         onReady={handleReportReady}
       />
     ) : step === "dashboard" && activeReport ? (
@@ -310,12 +322,21 @@ export default function Home() {
           handleReportChange(activeReport.id, { data: { ...activeReport.data, evidence } })
         }
         onBackToCanvas={handleBackToCanvas}
+        onOpenIssue={(issueId) => {
+          const last = latestReport(reports, issueId);
+          if (last) openReport(last);
+        }}
+        onShowIssue={(issueId) => {
+          setCanvasFocusId(issueId);
+          setStep("canvas");
+        }}
         onReset={handleReset}
       />
     ) : step !== "chat" ? (
       <CanvasScreen
         key={sessionId ?? "new"}
         initialGraph={graph}
+        initialFocusId={canvasFocusId}
         onGraphChange={handleGraphChange}
         onFinalize={handleFinalize}
         issueReports={issueReports}

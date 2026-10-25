@@ -44,6 +44,51 @@ Decided with the owner on 2026-10-01 (grilling session). The visual spec of the 
     linked issue's open tasks.
   - **Conflicts with:** not in the first version. Add it if users often find neither type
     fits.
+- **Decided 2026-10-05 (with the owner):**
+  - **Suggest, don't link.** New issue no longer links by itself: it proposes a link to the
+    latest issue (faint dotted line, "Link to Issue 1? · Follows up", Accept / ✕). A
+    suggestion never reaches a report; only links the user made or accepted do. Why: a
+    link now changes the report, so the user must know it is there.
+  - **No report yet:** the reading falls back to the linked issue's canvas (its selected
+    cards). The band says which one it read ("From its report · v1" / "From its canvas").
+  - **Where it shows:** a band above Section 01, one stub per link.
+  - **Built when the version is built** and saved with it (`ReportData.links`), so a saved
+    version never changes. Telling the user that the linked issue moved on is the
+    "Linked report changed" item under Reports (not built yet).
+- **Built (2026-10-05):**
+  - Link mode in the dock (`components/canvas/link-mode.tsx`): L or click, status segment
+    "Pick the first issue" → "Now pick the second" → "Linked", live dashed connector, a
+    click on any card picks its issue, newer → older whatever the pick order, the AI picks
+    the type (`pickLinkType`), "Pick a different issue" / "Already linked" shake, and with
+    one issue the button shakes ("Add a second issue first"). Esc or Link again leaves.
+  - Suggested links (`IssueLink.suggested`, `SuggestedChip` in `link-edge.tsx`).
+  - Readings (`lib/links.ts` `linkContexts` → `lib/mockAI.ts` `getLinkReadings`, mock) and
+    the band (`components/dashboard/link-band.tsx`): Follows up shows the linked issue's
+    task track ("You did 2 of 6 … is still open"); Digs into shows a verdict on an
+    Unlikely / Partly / Likely scale. "Open Issue 1's report" or, with no report, "Show on
+    canvas" (the canvas opens on that issue).
+- **Revised 2026-10-20 (with the owner), supersedes "Suggest, don't link" and Link mode above:**
+  - Link left the dock (dock = New issue + Spark; L shortcut gone; `link-mode.tsx` deleted).
+    Links are born in the New issue card: under its suggestions, "How does this relate to
+    Issue n?" with Follows up / Explains it / Unrelated. Remedy's guess (`pickLinkType`) is
+    pre-selected and follows the text until the user picks. Unrelated adds no link.
+  - Fixed later from the quote card's hover "Link…" menu (`LinkIssueMenu` in `rx-node.tsx`).
+  - No suggested links any more; old sessions' suggested links are skipped on the canvas and
+    in reports.
+  - "Digs into" is called **Explains it** in the UI (data value still `digs-into`).
+  - The link draws as a straight brand-green line with a pill (`link-edge.tsx`):
+    "Follows up  Issue 1 | 2/3" (tasks done, or the verdict for Explains it). Hover opens a
+    panel under it: sentence, task track, Change (type or Remove link), Open Issue 1.
+  - The band is gone. Section 01 of the report (`carried-over.tsx`) is a placeholder: its
+    design is **still undecided** (text layouts were rejected; graphic versions are being
+    compared, see `docs/handoffs/2026-10-20.md`).
+- **Built 2026-10-25:** "New tasks do not repeat finished work". In a Follows up report
+  (`followUpTasks` in `lib/links.ts`), tasks the linked issue finished or closed are left out,
+  and the task it stalled on is the first step (picked up once, with "Picked up from Issue n"
+  in its history). The mock gives a follow-up issue its own task templates.
+- **Not yet:** the real LLM reading (the seam is `getLinkReadings`); Explains it's task order
+  (waits for real task generation); "Issue 1 has a newer report"; "Refresh suggestions" on a
+  draft.
 
 ## Reports
 
@@ -78,8 +123,9 @@ Decided with the owner on 2026-10-01 (grilling session). The visual spec of the 
 - A click only selects a card (Spark target, View report's issue). It no longer adds the
   card to the report.
 - **Revised 2026-10-02:** no mark on the card. The report path shows on the canvas
-  instead: edges into every card in the report (and every card above one) draw solid and
-  soft green; the rest stay dashed gray. Adding or removing a card by hand is a button in
+  instead: edges into every card in the report (and every card above one) draw in a darker
+  gray, `hsl(100 4% 44%)`, with the same dash as the rest (revised 2026-10-20: the owner
+  rejected every green treatment). Adding or removing a card by hand is a button in
   the card's hover bar (next to like / dislike).
 
 ## Open: the report's recommendation card
@@ -99,7 +145,8 @@ I do first?")? A (b) sketch: title + small "80 fit" chip, one-line why, first st
 2. Spark angles in the report (done)
 3. View report menu (done)
 4. New issue (done)
-5. Link
+5. Link (done 2026-10-20: links from the New issue card, link pill, follow-up tasks; the
+   report section's design is still open, see Link)
 6. Real task generation and a cross-session "My tasks" screen
 7. Like / dislike redesign
 8. Redesign the report's recommendation card (see "Open" above)

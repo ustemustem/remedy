@@ -43,6 +43,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { issueOf, type IssueReportState } from "@/lib/reports";
+import { addLink, planLink, tallyTasks } from "@/lib/links";
 import { CanvasDock, type DockBusy, type SparkStatus } from "./canvas-dock";
 import { SparkTargetContext } from "./spark-target-context";
 import { ANGLES, SPARK_FIRST_STAGE, canSpark, usedAngles } from "@/lib/angles";
@@ -57,7 +58,6 @@ import {
   pickWeakestAngle,
   sparkAngle,
   getInitialCanvas,
-  pickLinkType,
   suggestNextIssues,
 } from "@/lib/mockAI";
 import {
@@ -571,6 +571,7 @@ function RevealDirector({
 
 export function CanvasScreen({
   initialGraph,
+  initialFocusId,
   onGraphChange,
   onFinalize,
   issueReports,
@@ -581,6 +582,8 @@ export function CanvasScreen({
   fieldSettings,
 }: {
   initialGraph: CanvasGraph;
+  /** A card to bring into view on mount ("Show on canvas" from a report). */
+  initialFocusId?: string | null;
   /** Fires whenever the graph changes — lets the caller autosave to a session. */
   onGraphChange?: (graph: CanvasGraph) => void;
   /** The end-of-path card's "View report": opens the saved report, or builds a
@@ -658,6 +661,15 @@ export function CanvasScreen({
   useEffect(() => {
     onFinalizeRef.current = onFinalize;
   }, [onFinalize]);
+  // Same for the link pills: which report to open, and the reports they read
+  // their status from. Reports only change on the report screen, and the
+  // canvas remounts on the way back, so reading them through a ref is enough.
+  const onOpenReportRef = useRef(onOpenReport);
+  const issueReportsRef = useRef(issueReports);
+  useEffect(() => {
+    onOpenReportRef.current = onOpenReport;
+    issueReportsRef.current = issueReports;
+  }, [onOpenReport, issueReports]);
   const [pendingNodeIds, setPendingNodeIds] = useState<Set<string>>(new Set());
   const [hoveredGroupId, setHoveredGroupId] = useState<string | null>(null);
   const [measuredSizes, setMeasuredSizes] = useState<
@@ -1140,7 +1152,9 @@ export function CanvasScreen({
 
   // ── New issue (dock). docs/ideas/dock-functions.md, New issue.
   // The camera glides to a card when it lands; with the N key it jumps.
-  const [focusRequest, setFocusRequest] = useState<{ id: string; instant: boolean; n: number } | null>(null);
+  const [focusRequest, setFocusRequest] = useState<{ id: string; instant: boolean; n: number } | null>(() =>
+    initialFocusId ? { id: initialFocusId, instant: false, n: 1 } : null
+  );
   const focusOn = useCallback((id: string, instant: boolean) => {
     setFocusRequest((r) => ({ id, instant, n: (r?.n ?? 0) + 1 }));
   }, []);
@@ -1153,32 +1167,32 @@ export function CanvasScreen({
       focusOn(open.id, viaKey);
       return;
     }
-    setDockBusy({ tool: "new", stages: ["Reading the session…", "Drafting an issue…"] });
-    try {
-      // The suggested questions are what the button's stages wait on.
-      const suggestions = await withMinDuration(suggestNextIssues(graph), 2600);
-      const draft: CanvasNodeData = {
-        id: `draft-${Date.now()}`,
-        kind: "source",
-        title: "What you wrote",
-        body: "",
-        parentId: null,
-        depth: 0,
-        selected: false,
-        draft: true,
-        suggestions,
-      };
-      setGraph((g) => ({ nodes: [...g.nodes, draft], edges: g.edges }));
-      focusOn(draft.id, viaKey);
-    } finally {
-      setDockBusy(null);
-    }
+    // The card opens at once, so the user can start writing; the suggested
+    // questions arrive inside it a moment later (suggestions undefined = loading).
+    const draft: CanvasNodeData = {
+      id: `draft-${Date.now()}`,
+      kind: "source",
+      title: "What you wrote",
+      body: "",
+      parentId: null,
+      depth: 0,
+      selected: false,
+      draft: true,
+    };
+    setGraph((g) => ({ nodes: [...g.nodes, draft], edges: g.edges }));
+    focusOn(draft.id, viaKey);
+    const suggestions = await withMinDuration(suggestNextIssues(graph), 1200).catch(() => [] as string[]);
+    setGraph((g) => ({
+      nodes: g.nodes.map((n) => (n.id === draft.id ? { ...n, suggestions } : n)),
+      edges: g.edges,
+    }));
   }
 
   // The draft becomes a real issue: its own first-pass tree, linked to the
-  // latest issue (provisional rule: the AI picks the type; the chip edits it).
+  // latest issue the way the user answered "Builds on Issue n?" in the draft
+  // (Remedy pre-selects its guess). "Not related" adds no link.
   const handleSubmitIssue = useCallback(
-    async (draftId: string, text: string) => {
+    async (draftId: string, text: string, linkType: IssueLinkType | null) => {
       setPendingNodeIds((prev) => new Set(prev).add(draftId));
       try {
         const fresh = await withMinDuration(getInitialCanvas(text), loadingCycleMs(3, 700));
@@ -1187,9 +1201,8 @@ export function CanvasScreen({
         setGraph((g) => {
           const written = g.nodes.filter((n) => n.kind === "source" && !n.draft);
           const latest = written[written.length - 1];
-          const linked: CanvasNodeData = latest
-            ? { ...source, links: [{ to: latest.id, type: pickLinkType(text) }] }
-            : source;
+          const linked: CanvasNodeData =
+            latest && linkType ? { ...source, links: [{ to: latest.id, type: linkType }] } : source;
           return {
             nodes: [...g.nodes.filter((n) => n.id !== draftId), linked, ...fresh.nodes.filter((n) => n !== source)],
             edges: [...g.edges, ...fresh.edges],
@@ -1228,6 +1241,15 @@ export function CanvasScreen({
       ),
       edges: g.edges,
     }));
+  }, []);
+
+  /** The quote card's "Link…" menu: link two issues after the fact. The link
+   *  runs newer → older whichever card the menu was opened on. */
+  const handleLinkIssue = useCallback((a: string, b: string, type: IssueLinkType) => {
+    setGraph((g) => {
+      const plan = planLink(g.nodes, a, b);
+      return plan.ok ? addLink(g, plan.from, plan.to, type) : g;
+    });
   }, []);
 
   async function handleSpark() {
@@ -1309,6 +1331,25 @@ export function CanvasScreen({
           pathFeedback,
           onGroupHoverChange: setHoveredGroupId,
           issueNumber: issueNumbers.get(n.id),
+          // A draft asks whether it builds on the latest written issue.
+          linkTarget:
+            n.draft && writtenSources.length > 0
+              ? { number: writtenSources.length, title: writtenSources[writtenSources.length - 1].body }
+              : undefined,
+          // A written issue, with others on the canvas: the "Link…" menu lists them.
+          linkOptions:
+            n.kind === "source" && !n.draft && writtenSources.length > 1
+              ? writtenSources
+                  .map((w, i) => ({ w, number: i + 1 }))
+                  .filter(({ w }) => w.id !== n.id)
+                  .map(({ w, number }) => ({
+                    id: w.id,
+                    number,
+                    title: w.body,
+                    linked: !!n.links?.some((l) => l.to === w.id) || !!w.links?.some((l) => l.to === n.id),
+                  }))
+              : undefined,
+          onLinkIssue: handleLinkIssue,
           onSubmitIssue: handleSubmitIssue,
           onDiscardIssue: handleDiscardIssue,
         } satisfies RxNodeData,
@@ -1358,7 +1399,21 @@ export function CanvasScreen({
     for (const n of writtenSources) {
       for (const link of n.links ?? []) {
         const toNumber = writtenSources.findIndex((w) => w.id === link.to) + 1;
-        if (toNumber === 0) continue;
+        // Suggested links (older sessions) are no longer shown: links are made
+        // in the New issue card or the quote card's "Link…" menu.
+        if (toNumber === 0 || link.suggested) continue;
+        const toReport = issueReportsRef.current.find((s) => s.issue.id === link.to)?.latest ?? null;
+        const tally = toReport ? tallyTasks(toReport.tasks) : null;
+        const total = tally ? tally.done + tally.doing + tally.todo : 0;
+        const verdict = issueReportsRef.current
+          .find((s) => s.issue.id === n.id)
+          ?.latest?.data.links?.find((l) => l.toIssueId === link.to)?.verdict;
+        const say =
+          link.type === "follows-up"
+            ? total > 0
+              ? <>Picks up where Issue {toNumber} left off: <b>{tally!.done} of {total} tasks done.</b></>
+              : <>Picks up where Issue {toNumber} left off. It has no report yet.</>
+            : <>Asks whether this is <b>the cause of Issue {toNumber}</b>.</>;
         nextEdges.push({
           id: `link-${n.id}-${link.to}`,
           source: n.id,
@@ -1369,6 +1424,16 @@ export function CanvasScreen({
           data: {
             type: link.type,
             toNumber,
+            fromNumber: writtenSources.indexOf(n) + 1,
+            status:
+              link.type === "digs-into" && verdict
+                ? verdict.charAt(0).toUpperCase() + verdict.slice(1)
+                : total > 0
+                  ? `${tally!.done}/${total}`
+                  : undefined,
+            say,
+            tasks: total > 0 ? { done: tally!.done, total } : undefined,
+            onOpenIssue: toReport ? () => onOpenReportRef.current(link.to) : undefined,
             onChangeType: (t: IssueLinkType) => handleLinkChange(n.id, link.to, t),
             onRemove: () => handleLinkChange(n.id, link.to, null),
           } satisfies LinkEdgeData,
@@ -1391,6 +1456,7 @@ export function CanvasScreen({
     handleSubmitIssue,
     handleDiscardIssue,
     handleLinkChange,
+    handleLinkIssue,
     setRfNodes,
     setRfEdges,
   ]);

@@ -69,13 +69,56 @@ const TEMPLATES: Template[] = [
   },
 ];
 
+/** An issue that follows up an earlier one gets its own next moves, so its
+ *  list doesn't repeat the earlier issue's (lib/links.ts, followUpTasks). */
+const FOLLOW_UP_TEMPLATES: Template[] = [
+  {
+    title: "Ask who keeps missing it, and why",
+    priority: "high",
+    timeframe: "this-week",
+    durationMin: 20,
+    who: "The people who miss it",
+    channel: "in-person",
+    why: "A rule that some people skip usually has a reason. Ask before you push harder. (mock)",
+    draft: "Got 10 minutes? I'd like to hear what makes the new rule hard to keep.",
+    steps: [
+      "List who missed it in the last two weeks.",
+      "Ask each one what got in the way.",
+      "Note the one reason that comes up most.",
+    ],
+  },
+  {
+    title: "Add a reminder the day before",
+    priority: "medium",
+    timeframe: "today",
+    durationMin: 10,
+    who: "Just you",
+    channel: "slack",
+    why: "Most misses are forgetting, not refusing. A nudge the day before is cheap. (mock)",
+    draft: "Reminder: feedback on yesterday's candidates is due tomorrow.",
+    steps: ["Pick the channel people read.", "Schedule the reminder.", "Check after a week if misses dropped."],
+  },
+  {
+    title: "Share one result of the rule",
+    priority: "low",
+    timeframe: "this-month",
+    durationMin: 15,
+    who: "Your team",
+    channel: "email",
+    why: "People keep a rule they can see working. One real example does more than a reminder. (mock)",
+    draft: "Quick win: since the 48-hour rule, we kept a candidate who had another offer. Thanks, all.",
+    steps: ["Find one case where the rule helped.", "Write it in three lines.", "Send it to the team."],
+  },
+];
+
 function searchLink(label: string, query: string) {
   return { label, url: `https://www.google.com/search?q=${encodeURIComponent(query)}` };
 }
 
-export function buildMockTasks(needs: DashboardNeed[]): Task[] {
+export function buildMockTasks(needs: DashboardNeed[], { followUp = false }: { followUp?: boolean } = {}): Task[] {
+  const templates = followUp ? FOLLOW_UP_TEMPLATES : TEMPLATES;
   const tasks = needs.flatMap((need, n) => {
-    const fromTemplates = TEMPLATES.map((tpl, i): Task => {
+    const fromTemplates = templates.map((tpl, i): Task => {
       const id = `${need.node.id}-${i}`;
       return {
         id: `task-${id}`,
@@ -84,7 +127,7 @@ export function buildMockTasks(needs: DashboardNeed[]): Task[] {
         title: tpl.title,
         why: tpl.why,
         priority: tpl.priority,
-        order: n * TEMPLATES.length + i,
+        order: n * templates.length + i,
         status: "todo",
         timeframe: tpl.timeframe,
         durationMin: tpl.durationMin,
@@ -96,7 +139,7 @@ export function buildMockTasks(needs: DashboardNeed[]): Task[] {
         history: [{ version: 1, label: "First version from your report" }],
       };
     });
-    return withAngles(need, fromTemplates, n * (TEMPLATES.length + 1));
+    return withAngles(need, fromTemplates, n * (templates.length + 1));
   });
   return rankByPriority(tasks);
 }

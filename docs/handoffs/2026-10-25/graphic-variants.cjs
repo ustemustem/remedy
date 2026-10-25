@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- a plain Node script, run with `node` */
 // Graphic versions (G1-G4) of the report's "Where you left off" section,
 // injected into the REAL linked report (mock mode), plus a check of the real
 // Next step card. Builds Issue 1's report, marks 2 tasks done, adds a linked

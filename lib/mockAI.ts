@@ -26,10 +26,13 @@ import type {
   SessionStats,
   FitSignal,
   EvidenceExample,
+  LinkReading,
+  LinkVerdict,
   ReportData,
 } from "./types";
 import type { DashboardNeed, ThemeEntry } from "./graph";
 import type { AngleId } from "./angles";
+import type { LinkContext } from "./links";
 import type { IssueLinkType } from "./types";
 import { deriveDashboardNeeds, deriveThemeEntries, deriveSessionStats } from "./graph";
 import {
@@ -48,17 +51,18 @@ import {
  * ReportLoader awaits this promise (with its own MIN_VISIBLE_MS floor +
  * CEILING_MS timeout race), so its stages now track real work, not a fake timer.
  */
-export async function generateReport(graph: CanvasGraph): Promise<ReportData> {
+export async function generateReport(graph: CanvasGraph, links: LinkContext[] = []): Promise<ReportData> {
   const needs = deriveDashboardNeeds(graph.nodes);
   const themes = deriveThemeEntries(graph.nodes);
   const stats = deriveSessionStats(graph.nodes);
   const vent = graph.nodes.find((n) => n.kind === "source")?.body ?? "";
-  const [summary, readout, fits] = await Promise.all([
+  const [summary, readout, fits, linkReadings] = await Promise.all([
     getUnderstoodSummary(needs, vent),
     getSessionReadout(stats, themes),
     getFitSignals(vent, needs),
+    getLinkReadings(links, vent),
   ]);
-  return { summary, readout, fits };
+  return { summary, readout, fits, ...(linkReadings.length > 0 ? { links: linkReadings } : {}) };
 }
 
 function id(prefix: string) {
@@ -753,4 +757,74 @@ export function pickLinkType(newIssue: string): IssueLinkType {
   return /\b(why|wrong|cause|reason|because|root|really|real problem|method|approach|way I)\b/i.test(newIssue)
     ? "digs-into"
     : "follows-up";
+}
+
+// ---------------------------------------------------------------------------
+// Link readings (lib/links.ts). MOCK: canned sentences over the real context
+// (the linked issue's picks and task tally). A real pass writes them with the
+// LLM from the same LinkContext, and judges Digs into from both issues' words.
+// ---------------------------------------------------------------------------
+
+/** The band's words for each accepted link of the issue being reported on. */
+export async function getLinkReadings(contexts: LinkContext[], issueText: string): Promise<LinkReading[]> {
+  if (contexts.length === 0) return [];
+  await new Promise((r) => setTimeout(r, 300 + Math.random() * 500));
+  return contexts.map((ctx) => {
+    const words = ctx.type === "follows-up" ? followUpWords(ctx) : digsIntoWords(ctx, issueText);
+    return {
+      toIssueId: ctx.toIssueId,
+      toNumber: ctx.toNumber,
+      toTitle: ctx.toTitle,
+      type: ctx.type,
+      source: ctx.source,
+      ...(ctx.version ? { version: ctx.version } : {}),
+      ...(pickPhrase(ctx) ? { topPick: pickPhrase(ctx)! } : {}),
+      ...words,
+      // The task track belongs to Follows up: it reads what was done.
+      ...(ctx.type === "follows-up" && ctx.tasks ? { tasks: ctx.tasks } : {}),
+    };
+  });
+}
+
+function pickPhrase(ctx: LinkContext): string | null {
+  const pick = ctx.picks[0]?.replace(/\s\(v\d+\)$/, "");
+  return pick ?? null;
+}
+
+function followUpWords(ctx: LinkContext): Pick<LinkReading, "headline" | "detail"> {
+  const pick = pickPhrase(ctx);
+  if (ctx.source === "canvas") {
+    return pick
+      ? { headline: `Last time you were leaning toward “${pick}”.`, detail: "Nothing tracked yet: that issue has no report. (mock)" }
+      : { headline: `Issue ${ctx.toNumber} is still open on your canvas.`, detail: "Nothing picked or tracked yet. (mock)" };
+  }
+  const t = ctx.tasks ?? { done: 0, doing: 0, todo: 0, named: [] };
+  const total = t.done + t.doing + t.todo;
+  const headline = pick ? `Last time you picked “${pick}”.` : `Last time you opened Issue ${ctx.toNumber}.`;
+  const firstDone = t.named.find((n) => n.status === "done");
+  const firstOpen = t.named.find((n) => n.status !== "done");
+  let detail: string;
+  if (total === 0) detail = "No tasks came out of it. (mock)";
+  else if (t.done === total) detail = `You finished all ${total} tasks. This issue starts from there. (mock)`;
+  else if (!firstDone) detail = `None of its ${total} tasks is done yet. This issue may be why. (mock)`;
+  else detail = `You did ${t.done} of ${total}, starting with “${firstDone.title}”.${firstOpen ? ` “${firstOpen.title}” is still open.` : ""} (mock)`;
+  return { headline, detail };
+}
+
+function significantWords(text: string) {
+  return new Set(text.toLowerCase().match(/[a-z]{5,}/g) ?? []);
+}
+
+function digsIntoWords(ctx: LinkContext, issueText: string): Pick<LinkReading, "headline" | "detail" | "verdict"> {
+  const theirs = significantWords([ctx.toTitle, ...ctx.picks].join(" "));
+  const shared = [...significantWords(issueText)].filter((w) => theirs.has(w)).length;
+  const verdict: LinkVerdict = shared >= 2 ? "likely" : shared === 1 ? "partly" : "unlikely";
+  const pick = pickPhrase(ctx);
+  const from = ctx.source === "report" ? `Issue ${ctx.toNumber}'s report` : `your Issue ${ctx.toNumber} canvas`;
+  const detail: Record<LinkVerdict, string> = {
+    likely: `It fits what ${from} shows${pick ? `: “${pick}” only works once this is solved` : ""}. (mock)`,
+    partly: `It explains some of it, but ${from} points to more than one cause. (mock)`,
+    unlikely: `Little in ${from} points here. Treat it as its own problem. (mock)`,
+  };
+  return { headline: `Is this why Issue ${ctx.toNumber} keeps happening?`, detail: detail[verdict], verdict };
 }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useReducedMotion } from "motion/react";
 import { generateReport } from "@/lib/mockAI";
 import { withMinDuration } from "@/lib/timing";
+import type { LinkContext } from "@/lib/links";
 import type { CanvasGraph, ReportData } from "@/lib/types";
 
 // Canvas -> report loading transition (see animation-handoff.md). The mark
@@ -80,9 +81,12 @@ type Phase = "draw" | "working" | "exit" | "error";
  */
 export function ReportLoader({
   graph,
+  links,
   onReady,
 }: {
   graph: CanvasGraph;
+  /** What the issue's accepted links read from the issues they point to. */
+  links?: LinkContext[];
   onReady: (data: ReportData) => void;
 }) {
   const [phase, setPhase] = useState<Phase>("draw");
@@ -130,7 +134,7 @@ export function ReportLoader({
     timersRef.current.push(t1, t2);
 
     withMinDuration(
-      Promise.race([generateReport(graph), timeoutAfter(CEILING_MS, timersRef.current)]),
+      Promise.race([generateReport(graph, links), timeoutAfter(CEILING_MS, timersRef.current)]),
       MIN_VISIBLE_MS
     )
       .then((data) => {
@@ -154,7 +158,7 @@ export function ReportLoader({
         if (attemptRef.current !== attempt) return;
         setPhase("error");
       });
-  }, [clearTimers, enterWorking, finish, reducedMotion, graph]);
+  }, [clearTimers, enterWorking, finish, reducedMotion, graph, links]);
 
   useEffect(() => {
     beginAttempt();

@@ -25,6 +25,16 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { OptionPicker } from "./option-picker";
 import { TypewriterText } from "./typewriter-text";
 import { useSourceStyle } from "./source-style-context";
@@ -32,7 +42,10 @@ import { ANGLES } from "@/lib/angles";
 import { ANGLE_ICON } from "./dock-icons";
 import { useIsSparkTarget } from "./spark-target-context";
 import AITextLoading from "@/components/kokonutui/ai-text-loading";
-import type { CanvasNodeData, FeedbackContext, HighlightSpan } from "@/lib/types";
+import type { CanvasNodeData, FeedbackContext, HighlightSpan, IssueLinkType } from "@/lib/types";
+import { pickLinkType } from "@/lib/mockAI";
+import { Segmented } from "@/components/tasks/segmented";
+import { LINK_ANCHOR_TOP } from "./link-edge";
 
 // Same shimmering-text loading style as the chat entry screen's Send button
 // (components/kokonutui/ai-text-loading.tsx) — just the animation, not the
@@ -90,8 +103,15 @@ export interface RxNodeData {
   onGroupHoverChange?: (groupId: string | null) => void;
   /** Source cards, when the canvas holds more than one issue: "Issue 2". */
   issueNumber?: number;
-  /** Draft source cards (New issue): write the issue and grow its tree. */
-  onSubmitIssue?: (nodeId: string, text: string) => void;
+  /** Written source cards, when there are other issues: what "Link…" offers. */
+  linkOptions?: { id: string; number: number; title: string; linked: boolean }[];
+  /** Link this issue and another one (the canvas orders them newer → older). */
+  onLinkIssue?: (nodeId: string, otherId: string, type: IssueLinkType) => void;
+  /** Draft source cards: the issue the draft would build on (the latest one). */
+  linkTarget?: { number: number; title: string };
+  /** Draft source cards (New issue): write the issue and grow its tree,
+   *  linked to `linkTarget` with the chosen type (null: not related). */
+  onSubmitIssue?: (nodeId: string, text: string, linkType: IssueLinkType | null) => void;
   /** Draft source cards: throw the unwritten issue away. */
   onDiscardIssue?: (nodeId: string) => void;
 }
@@ -154,6 +174,9 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
     pathFeedback,
     onGroupHoverChange,
     issueNumber,
+    linkOptions,
+    onLinkIssue,
+    linkTarget,
     onSubmitIssue,
     onDiscardIssue,
   } = data;
@@ -196,7 +219,8 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
 
   const isSource = nodeData.kind === "source";
   const sourceStyle = useSourceStyle();
-  const isRail = isSource && sourceStyle === "rail";
+  // A draft is not an issue yet: no rail, a dashed card (see the Card below).
+  const isRail = isSource && !isDraft && sourceStyle === "rail";
 
   // Cards use a CSS squircle (Card: --radius-card-shaped + corner-shape,
   // drawn by the browser) and a 1.25px CSS border. A clip-path with an SVG
@@ -294,6 +318,12 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
           The clarifying-question/conclusion card skips it too — it's a
           terminal handoff to the report, not one more reaction-worthy
           suggestion. */}
+      {isSource && !isDraft && linkOptions && linkOptions.length > 0 && (
+        // The rare later link (Link left the dock): same hover bar as the other cards.
+        <div className="nodrag nopan absolute -top-9 left-1/2 z-10 flex -translate-x-1/2 items-center rounded-[var(--radius-surface)] border border-border bg-card p-1 opacity-0 shadow-sm transition-opacity group-hover/node:opacity-100 has-[[data-state=open]]:opacity-100">
+          <LinkIssueMenu options={linkOptions} onLink={(otherId, type) => onLinkIssue?.(id, otherId, type)} />
+        </div>
+      )}
       {!isSource && !isClarifying && (
         <div className="nodrag nopan absolute -top-9 left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-[var(--radius-surface)] border border-border bg-card p-1 opacity-0 shadow-sm transition-opacity group-hover/node:opacity-100">
           {canSelect && (
@@ -361,6 +391,8 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
           isClarifying ? "cursor-default" : "cursor-pointer",
           "animate-in fade-in-0 slide-in-from-bottom-2 duration-300",
           pending && "opacity-60",
+          // Same dashed language as the unselected branch lines: written, not added yet.
+          isDraft && "border-dashed border-foreground/30 bg-card/60",
           nodeData.feedback === "like" && "ring-1 ring-primary/40",
           nodeData.feedback === "dislike" && "ring-1 ring-destructive/40",
           // "Rail" restructures the card into a 2-column grid — a solid
@@ -403,10 +435,13 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
         <Handle type="source" position={Position.Bottom} className="!bg-border" />
         {isSource && (
           // Anchors for links between issues (link-edge.tsx): newer issue's
-          // left side to the older issue's right side. Not draggable.
+          // left side to the older issue's right side. Not draggable. Fixed
+          // at the "What you wrote" line, not the card's middle: quote cards
+          // share a top edge but not a height, so both ends sit at the same
+          // height and the line runs straight through the pill's middle.
           <>
-            <Handle type="source" id="link-out" position={Position.Left} isConnectable={false} className="!opacity-0" />
-            <Handle type="target" id="link-in" position={Position.Right} isConnectable={false} className="!opacity-0" />
+            <Handle type="source" id="link-out" position={Position.Left} isConnectable={false} className="!opacity-0" style={{ top: LINK_ANCHOR_TOP }} />
+            <Handle type="target" id="link-in" position={Position.Right} isConnectable={false} className="!opacity-0" style={{ top: LINK_ANCHOR_TOP }} />
           </>
         )}
 
@@ -415,7 +450,8 @@ export function RxNode({ id, data }: NodeProps<RxNodeData>) {
           <DraftIssueBody
             nodeData={nodeData}
             pending={pending}
-            onSubmit={(text) => onSubmitIssue?.(id, text)}
+            linkTarget={linkTarget}
+            onSubmit={(text, linkType) => onSubmitIssue?.(id, text, linkType)}
             onDiscard={() => onDiscardIssue?.(id)}
           />
         ) : isAngle ? (
@@ -794,24 +830,40 @@ function AngleCardBody({ nodeData }: { nodeData: CanvasNodeData }) {
 
 const ISSUE_LOADING_STAGES = ["Reading…", "Analyzing…", "Preparing canvas…"];
 
+const LINK_CHOICES: { value: IssueLinkType | "none"; label: string }[] = [
+  { value: "follows-up", label: "Follows up" },
+  { value: "digs-into", label: "Explains it" },
+  { value: "none", label: "Unrelated" },
+];
+
 /**
- * A new issue the user has not written yet (New issue in the dock). The
- * suggested questions come from the session; the user picks one or writes
- * their own. "Add issue" grows the issue's tree next to the others.
+ * A new issue the user has not written yet (New issue in the dock). It opens
+ * at once; the suggested questions from the session arrive inside it
+ * (`suggestions` undefined while they load). The user picks one or writes
+ * their own, confirms how it relates to the latest issue (Remedy's guess is
+ * pre-selected and follows the text until the user picks), then "Add issue"
+ * grows the issue's tree next to the others, already linked.
  */
 function DraftIssueBody({
   nodeData,
   pending,
+  linkTarget,
   onSubmit,
   onDiscard,
 }: {
   nodeData: CanvasNodeData;
   pending: boolean;
-  onSubmit: (text: string) => void;
+  linkTarget?: { number: number; title: string };
+  onSubmit: (text: string, linkType: IssueLinkType | null) => void;
   onDiscard: () => void;
 }) {
   const [text, setText] = useState("");
   const canSubmit = text.trim().length > 0 && !pending;
+  // Remedy's guess until the user picks one themselves.
+  const [pickedLink, setPickedLink] = useState<IssueLinkType | "none" | null>(null);
+  const linkChoice = pickedLink ?? (text.trim() ? pickLinkType(text) : "follows-up");
+  const submit = () => onSubmit(text.trim(), linkTarget && linkChoice !== "none" ? linkChoice : null);
+  const loadingSuggestions = nodeData.suggestions === undefined && !pending;
   // Focus after the camera's glide (450ms), without scrolling: autoFocus
   // fires while React Flow is still placing the card and loses the focus.
   const fieldRef = useRef<HTMLTextAreaElement>(null);
@@ -836,25 +888,50 @@ function DraftIssueBody({
           onKeyDown={(e) => {
             if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && canSubmit) {
               e.preventDefault();
-              onSubmit(text.trim());
+              submit();
             }
           }}
           placeholder="What else is weighing on you?"
           rows={3}
           className="nodrag"
         />
+        {loadingSuggestions && (
+          <AITextLoading
+            texts={["Reading the session…", "Finding questions…"]}
+            interval={1200}
+            blur
+            className="text-[length:var(--text-label)] text-muted-foreground"
+          />
+        )}
         {nodeData.suggestions && nodeData.suggestions.length > 0 && !pending && (
           <div className="flex flex-wrap gap-1.5">
-            {nodeData.suggestions.map((q) => (
+            {nodeData.suggestions.map((q, i) => (
               <button
                 key={q}
                 type="button"
                 onClick={() => setText(q)}
-                className="nodrag rounded-full border border-border bg-background px-2.5 py-1 text-left text-[length:var(--text-label)] text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
+                className="need-row-in nodrag rounded-full border border-border bg-background px-2.5 py-1 text-left text-[length:var(--text-label)] text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
+                style={{ animationDelay: `${i * 40}ms` }}
               >
                 {q}
               </button>
             ))}
+          </div>
+        )}
+        {linkTarget && !pending && (
+          <div className="space-y-2 border-t border-dashed border-border pt-3">
+            <p className="text-[length:var(--text-label)] leading-snug text-muted-foreground">
+              How does this relate to <span className="font-semibold text-foreground">Issue {linkTarget.number}</span>
+              {" · "}
+              <span className="italic">&ldquo;{truncateWords(linkTarget.title, 7)}&rdquo;</span>?
+            </p>
+            <Segmented
+              label={`How this relates to Issue ${linkTarget.number}`}
+              value={linkChoice}
+              options={LINK_CHOICES}
+              onChange={setPickedLink}
+              className="nodrag grid w-full"
+            />
           </div>
         )}
         <div className="flex items-center justify-between pt-1">
@@ -864,7 +941,7 @@ function DraftIssueBody({
             className="nodrag btn-thinking"
             data-thinking={pending}
             disabled={!canSubmit}
-            onClick={() => onSubmit(text.trim())}
+            onClick={submit}
           >
             {pending ? (
               <>
@@ -892,5 +969,71 @@ function DraftIssueBody({
         </div>
       </CardContent>
     </>
+  );
+}
+
+/** The first `n` words of a text, with an ellipsis when cut. */
+function truncateWords(text: string, n: number): string {
+  const words = text.trim().split(/\s+/);
+  return words.length <= n ? text.trim() : `${words.slice(0, n).join(" ")}…`;
+}
+
+/**
+ * "Link…" on a written quote card: link this issue to another one after the
+ * fact (most links are made in the New issue card). Pick the issue, then how
+ * they relate. An issue already linked either way shows as Linked.
+ */
+function LinkIssueMenu({
+  options,
+  onLink,
+}: {
+  options: { id: string; number: number; title: string; linked: boolean }[];
+  onLink: (otherId: string, type: IssueLinkType) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="h-6 rounded-[var(--radius-control)] px-2 text-[length:var(--text-label)] font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
+          Link…
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="center" className="w-64">
+        <DropdownMenuLabel className="text-[length:var(--text-label)] font-normal text-muted-foreground">
+          Link this issue to
+        </DropdownMenuLabel>
+        {options.map((o) =>
+          o.linked ? (
+            <DropdownMenuItem key={o.id} disabled className="flex justify-between gap-2 text-xs">
+              <span className="truncate">
+                Issue {o.number} · {truncateWords(o.title, 5)}
+              </span>
+              <span className="shrink-0 text-muted-foreground">Linked</span>
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuSub key={o.id}>
+              <DropdownMenuSubTrigger className="text-xs">
+                <span className="truncate">
+                  <span className="font-semibold">Issue {o.number}</span> · {truncateWords(o.title, 5)}
+                </span>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-44">
+                {LINK_CHOICES.filter((c) => c.value !== "none").map((c) => (
+                  <DropdownMenuItem
+                    key={c.value}
+                    className="text-xs"
+                    onSelect={() => onLink(o.id, c.value as IssueLinkType)}
+                  >
+                    {c.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          )
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

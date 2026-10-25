@@ -20,9 +20,10 @@ export function RxEdge({
   style,
   data,
 }: EdgeProps<{ onPath?: boolean }>) {
-  // On the report path: solid, soft brand green. Off it: the dashed gray note line.
+  // The same dashed note line everywhere; the report path is just darker gray
+  // (owner decision 2026-10-13: no green, no thicker line).
   const onPath = !!data?.onPath;
-  const color = onPath ? "color-mix(in srgb, var(--primary) 55%, transparent)" : "var(--border)";
+  const color = onPath ? "hsl(100 4% 44%)" : "var(--border)";
   const [edgePath] = getSmoothStepPath({
     sourceX,
     sourceY,
@@ -41,7 +42,7 @@ export function RxEdge({
         style={{
           stroke: color,
           strokeWidth: 1.5,
-          strokeDasharray: onPath ? undefined : "4 4",
+          strokeDasharray: "4 4",
           transition: "stroke 200ms ease-out",
           strokeLinecap: "butt",
           ...style,

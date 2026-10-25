@@ -1263,3 +1263,173 @@
     transition: opacity 120ms ease;
   }
 }
+
+/* ── Link pill (canvas, link-edge.tsx) ───────────────────────────────────
+   "Follows up  Issue 1 | 2/6": plain sans, no icon. The pill never changes
+   size or shape; hovering opens a panel under it that moves only with
+   transform and opacity (open 180/200ms ease-out from the pill, close 120ms). */
+.link-pill-anchor {
+  font-family: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+}
+.link-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding: 0 14px;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--foreground);
+  background: #fbfcfb;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 2px 8px -3px rgb(20 30 40 / 0.18);
+  cursor: pointer;
+  transition: border-color 150ms ease, transform 160ms var(--ease-out);
+}
+.link-pill:active {
+  transform: scale(0.97);
+}
+.link-pill-anchor[data-open="true"] .link-pill {
+  border-color: color-mix(in srgb, var(--foreground) 30%, transparent);
+}
+.link-pill-issue {
+  font-weight: 600;
+}
+.link-pill-status {
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.link-pill-panel {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  z-index: 20;
+  width: 280px;
+  padding-top: 6px; /* part of the hover area: no gap between pill and panel */
+  transform-origin: top center;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(-4px) scale(0.97);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease,
+    visibility 0s linear 120ms;
+}
+.link-pill-anchor[data-open="true"] .link-pill-panel {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateX(-50%);
+  transition:
+    opacity 180ms var(--ease-out),
+    transform 200ms var(--ease-out),
+    visibility 0s;
+}
+.link-pill-panel-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: #fbfcfb;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow:
+    0 14px 32px -14px rgb(20 30 40 / 0.35),
+    0 2px 6px rgb(20 30 40 / 0.06);
+  white-space: normal;
+}
+.link-pill-say {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted-foreground);
+}
+.link-pill-say b {
+  font-weight: 600;
+  color: var(--foreground);
+}
+.link-pill-track {
+  display: flex;
+  gap: 3px;
+}
+.link-pill-track i {
+  flex: 1;
+  height: 5px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--foreground) 12%, transparent);
+}
+.link-pill-track i[data-on="true"] {
+  background: var(--primary);
+}
+.link-pill-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.link-pill-text {
+  font-size: 12.5px;
+  color: var(--muted-foreground);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.link-pill-text.danger {
+  color: var(--destructive);
+}
+.link-pill-answers {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.link-pill-answers button {
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #fbfcfb;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--foreground);
+  cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease, transform 160ms var(--ease-out);
+}
+.link-pill-answers button:active {
+  transform: scale(0.97);
+}
+.link-pill-answers button[data-on="true"] {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+@media (hover: hover) and (pointer: fine) {
+  .link-pill-text:hover {
+    color: var(--foreground);
+  }
+  .link-pill-answers button:hover {
+    border-color: var(--primary);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .link-pill-panel,
+  .link-pill-anchor[data-open="true"] .link-pill-panel {
+    transform: translateX(-50%);
+    transition: opacity 150ms ease, visibility 0s;
+  }
+  .link-pill:active,
+  .link-pill-answers button:active {
+    transform: none;
+  }
+}
+/* Link pills and their panels sit above the cards: React Flow paints the edge
+   label layer under the nodes, so an open panel would slide under a card or a
+   group bar. */
+.react-flow__edgelabel-renderer {
+  z-index: 1002;
+}

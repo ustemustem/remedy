@@ -158,7 +158,8 @@ A card click does **not** touch `selected` any more: it only makes the card the 
 selection (Spark's target; see "Canvas dock and Spark"). `selected` changes through "Prefer
 this option", "Select and continue", or the "Add to report" / "Remove from report" button in
 the card's hover bar. The canvas shows the report path: edges into cards in the report, and
-into every card above one, draw solid green (`onPath` edge data, `rx-edge.tsx`). Cards with an option
+into every card above one, draw as the same dashed line as other branches in a darker gray
+(`onPath` edge data, `rx-edge.tsx`; the owner rejected every green treatment). Cards with an option
 picker are not selectable by hand (`canSelect` is false); branching goes through the picker.
 
 ### Design tokens: two different "primary" concepts
@@ -184,16 +185,26 @@ radius). No clip-path or SVG strokes for card shapes; that approach was dropped 
 ### Canvas dock and Spark
 
 `components/canvas/canvas-dock.tsx` (spec: `docs/handoff-canvas-dock.md`, which supersedes
-older docs on dock styling) holds New issue, Link, and Spark; Link is "Coming next". New issue adds a draft
-source card (`draft: true`, suggestion chips); "Add issue" grows its tree with
-`getInitialCanvas` and links it to the latest issue (`links` on the source node, drawn by
-`link-edge.tsx`). Several source nodes = several issues side by side; `lib/reports.ts`
+older docs on dock styling) holds New issue and Spark. New issue adds a draft
+source card (`draft: true`, suggestion chips, `DraftIssueBody` in `rx-node.tsx`) that asks how
+it relates to the latest issue: Follows up / Explains it / Unrelated (Remedy's guess,
+`pickLinkType`, is pre-selected). "Add issue" grows its tree with `getInitialCanvas` and adds
+that link (`links` on the source node, newer → older). Links are changed later from the quote
+card's hover "Link…" menu (`LinkIssueMenu`). `link-edge.tsx` draws the link as a straight
+green line with a pill ("Follows up  Issue 1 | 2/3") whose hover panel has Change / Open.
+Old sessions' `suggested` links are skipped everywhere. In the report, `lib/links.ts`
+`linkContexts` reads the linked issue's latest report (or its canvas), `lib/mockAI.ts`
+`getLinkReadings` writes the words inside `generateReport` (saved as `ReportData.links`,
+shown as Section 01 by `components/dashboard/carried-over.tsx`, a placeholder: the section's
+design is still undecided). A "Follows up" link also shapes the tasks (`followUpTasks`): tasks
+the earlier issue finished are left out and the one it stalled on comes first.
+Several source nodes = several issues side by side; `lib/reports.ts`
 (`getIssues`, `issueOf`, `issueGraph`) scopes reports, outdated checks and the View report
 menu per issue. Spark tests the last clicked card (kept in
 `canvas-screen.tsx` state and passed through `SparkTargetContext`, not React Flow's own
 `selected`, which the per-change node rebuild would drop) and appends an `angle` card under it
 (`lib/angles.ts`, mock copy in `lib/mockAI.ts`'s `pickWeakestAngle` / `sparkAngle`). Shortcuts
-N / L / S / Esc are global but ignored while typing.
+N / S / Esc are global but ignored while typing.
 
 ### React Flow nodes: drag vs. click
 

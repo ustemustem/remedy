@@ -11,27 +11,21 @@ import {
   type SVGProps,
 } from "react";
 import AITextLoading from "@/components/kokonutui/ai-text-loading";
-import {
-  PinConnectorDashedIcon,
-  QuoteCardPlusIcon,
-  SparkOrbitFromIcon,
-  playSparkOrbit,
-} from "./dock-icons";
+import { QuoteCardPlusIcon, SparkOrbitFromIcon, playSparkOrbit } from "./dock-icons";
 
 /**
  * The canvas dock: the thinking tools, floating at the bottom center.
- * New issue adds another quote to the session, Link connects two quotes so
- * one issue's report reads the other's, and Spark tests the selected card
- * from another angle. Spec: docs/handoff-canvas-dock.md.
- *
- * New issue and Link need the multi-issue canvas, which is not built yet:
- * they shake and say "Coming next". Spark works today.
+ * New issue adds another quote to the session (and asks how it relates to
+ * the latest one), and Spark tests the selected card from another angle.
+ * Spec: docs/handoff-canvas-dock.md. Link left the dock on 2026-10-13: links
+ * are made in the New issue card, and the rare later link lives on the quote
+ * card's hover menu (rx-node.tsx).
  *
  * Motion rule: motion only on state changes caused by a pointer. Keyboard
- * actions (N, L, S, Esc) change state with no motion.
+ * actions (N, S, Esc) change state with no motion.
  */
 
-export type DockTool = "new" | "link" | "spark";
+export type DockTool = "new" | "spark";
 export type SparkStatus = "ready" | "no-selection" | "all-used";
 /** A tool doing AI work, with the stage labels its button cycles through. */
 export type DockBusy = { tool: DockTool; stages: string[] } | null;
@@ -48,7 +42,6 @@ type ToolDef = {
 
 const TOOLS: ToolDef[] = [
   { id: "new", label: "New issue", hint: "Add another problem to this session", shortcut: "N", icon: QuoteCardPlusIcon },
-  { id: "link", label: "Link", hint: "Connect two issues so one builds on the other", shortcut: "L", icon: PinConnectorDashedIcon, soon: true },
   { id: "spark", label: "Spark", hint: "See this card from another angle", shortcut: "S", icon: SparkOrbitFromIcon },
 ];
 
@@ -93,7 +86,7 @@ export function CanvasDock({
   onEscape: () => void;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
-  const toolRefs = useRef<Record<DockTool, HTMLButtonElement | null>>({ new: null, link: null, spark: null });
+  const toolRefs = useRef<Record<DockTool, HTMLButtonElement | null>>({ new: null, spark: null });
 
 
   // ── Hover pill and shared tooltip.

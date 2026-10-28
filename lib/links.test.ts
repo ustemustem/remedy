@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addLink, followUpTasks, linkContexts, planLink, tallyTasks } from "./links";
+import { addLink, followUpTasks, linkContexts, pickedUpFrom, planLink, tallyTasks } from "./links";
 import type { SavedReport } from "./reports";
 import type { Task } from "./tasks";
 import type { CanvasGraph, CanvasNodeData, IssueLink } from "./types";
@@ -148,6 +148,8 @@ describe("followUpTasks", () => {
     expect(out.map((t) => t.title)).toEqual(["Check the rule at the retro", "Book a CV slot"]);
     expect(out.map((t) => t.order)).toEqual([0, 1]);
     expect(out[0].history.at(-1)?.label).toBe("Picked up from Issue 1");
+    expect(pickedUpFrom(out[0])).toBe(1);
+    expect(pickedUpFrom(out[1])).toBeNull();
   });
 
   it("brings the stalled task over when this issue does not propose it", () => {

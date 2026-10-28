@@ -10,6 +10,7 @@ import {
   type Task,
   type TaskPriority,
 } from "@/lib/tasks";
+import { pickedUpFrom } from "@/lib/links";
 import { ExportMenu } from "./export-menu";
 
 const PRIORITY_DOT: Record<TaskPriority, string> = {
@@ -34,7 +35,9 @@ export function NextStepsCard({
   onOpenTask: (taskId: string) => void;
 }) {
   const first = nextTask(tasks);
-  const then = sortTasks(tasks.filter((t) => t.status !== "done" && t.id !== first?.id)).slice(0, 2);
+  // A follow-up report's first step can be the task a linked issue stalled on.
+  const fromIssue = first ? pickedUpFrom(first) : null;
+  const then =sortTasks(tasks.filter((t) => t.status !== "done" && t.id !== first?.id)).slice(0, 2);
   const { done, total } = progress(tasks);
 
   return (
@@ -61,6 +64,11 @@ export function NextStepsCard({
           className="ns-first ns-press need-row-in group block w-full px-3 py-3 text-left"
           style={{ animationDelay: "120ms" }}
         >
+          {fromIssue != null && (
+            <span className="mb-2 block w-fit rounded-[4px] bg-cta px-1.5 py-px text-[12px] font-semibold text-cta-foreground">
+              From Issue {fromIssue}
+            </span>
+          )}
           <span className="flex items-start justify-between gap-3">
             <span className="text-[15px] font-semibold leading-snug">{first.title}</span>
             <ArrowRight className="mt-0.5 size-4 shrink-0 opacity-60 transition-transform duration-200 group-hover:translate-x-0.5" />

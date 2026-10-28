@@ -293,7 +293,8 @@ const BarInner = memo(function BarInner({
           if (stacked && stackOffsets) {
             const offset = stackOffsets.get(i)?.get(dataKey) ?? 0;
             x = scale(offset) ?? 0;
-            barW = valuePos - x;
+            // The segment ends at offset + value, not at value alone.
+            barW = (scale(offset + value) ?? 0) - x;
             // Apply stack gap for horizontal: shift right and reduce width
             const gapOffset = seriesIndex * stackGap;
             x += gapOffset;

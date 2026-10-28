@@ -194,10 +194,13 @@ card's hover "Link…" menu (`LinkIssueMenu`). `link-edge.tsx` draws the link as
 green line with a pill ("Follows up  Issue 1 | 2/3") whose hover panel has Change / Open.
 Old sessions' `suggested` links are skipped everywhere. In the report, `lib/links.ts`
 `linkContexts` reads the linked issue's latest report (or its canvas), `lib/mockAI.ts`
-`getLinkReadings` writes the words inside `generateReport` (saved as `ReportData.links`,
-shown as Section 01 by `components/dashboard/carried-over.tsx`, a placeholder: the section's
-design is still undecided). A "Follows up" link also shapes the tasks (`followUpTasks`): tasks
-the earlier issue finished are left out and the one it stalled on comes first.
+`getLinkReadings` writes the words inside `generateReport` (saved as `ReportData.links`).
+The report shows a link as one sentence in place of its subtitle under "Your Prescription"
+(`components/dashboard/linked-intro.tsx`); there is no carry-over section (the owner dropped
+it on 2026-10-28 after text and chart versions all repeated the pill and Next step card).
+A "Follows up" link also shapes the tasks (`followUpTasks`): tasks the earlier issue finished
+are left out and the one it stalled on comes first, tagged "From Issue N" on the Next step
+card (`pickedUpFrom`).
 Several source nodes = several issues side by side; `lib/reports.ts`
 (`getIssues`, `issueOf`, `issueGraph`) scopes reports, outdated checks and the View report
 menu per issue. Spark tests the last clicked card (kept in

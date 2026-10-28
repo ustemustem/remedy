@@ -100,13 +100,21 @@ export function followUpTasks(fresh: Task[], graph: CanvasGraph, reports: SavedR
   const stalled = from && nextTask(open(from.tasks));
   if (!from || !stalled) return rest.map((t, i) => ({ ...t, order: i }));
 
-  const label = `Picked up from Issue ${from.number}`;
+  const label = `${PICKED_UP}${from.number}`;
   const own = rest.find((t) => t.title === stalled.title);
   const first: Task = own
     ? { ...own, priority: "high", history: [...own.history, { version: own.version, label }] }
     : { ...stalled, id: `task-follow-${stalled.id}`, history: [{ version: stalled.version, label }] };
   // Picked up once: other copies of the same task are left out.
   return [first, ...rest.filter((t) => t.title !== stalled.title)].map((t, i) => ({ ...t, order: i }));
+}
+
+const PICKED_UP = "Picked up from Issue ";
+
+/** The issue number a task was picked up from by followUpTasks, or null. */
+export function pickedUpFrom(task: Task): number | null {
+  const label = task.history.find((h) => h.label.startsWith(PICKED_UP))?.label;
+  return label ? Number(label.slice(PICKED_UP.length)) || null : null;
 }
 
 // ---------------------------------------------------------------------------

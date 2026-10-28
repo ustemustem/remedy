@@ -137,10 +137,14 @@ these entries. "Why" records the decision behind the behavior, so the copy can e
 - **Why:** the link has to change what you do next, or it is decoration.
 - **Hint:** none. **Onboarding:** the payoff of the Link step.
 
-### Where you left off (report, Section 01)
-- **Status:** placeholder (`carried-over.tsx`); the design is undecided. Text layouts were
-  rejected; graphic versions (task track, rings, canvas echo, three numbers) are being
-  compared. Write this entry once one is picked.
+### Where you left off (report header, Next step)
+- **For:** seeing at a glance that this report knows what you did on the linked issue.
+- **What happens:** the line under "Your Prescription" says it: "Follows up Issue 1: leaves
+  out the 2 tasks you finished there and starts with the one that stalled." "Issue 1" opens
+  its report. On the Next step card, the stalled task carries an orange "From Issue 1" tag.
+- **Why:** a separate section only repeated the canvas pill and the Next step card (owner
+  decision 2026-10-28, after text, track, ring, bar and sankey versions).
+- **Hint:** none. **Onboarding:** the payoff of the Link step, together with Follow-up tasks.
 
 ## Open questions
 

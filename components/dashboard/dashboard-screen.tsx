@@ -11,7 +11,7 @@ import { NextStepsCard } from "@/components/tasks/next-steps-card";
 import { TasksView } from "@/components/tasks/tasks-view";
 import { Segmented } from "@/components/tasks/segmented";
 import { PrescriptionReport } from "./prescription-report";
-import { CarriedOver, carriedOverTitle } from "./carried-over";
+import { LinkedIntro } from "./linked-intro";
 import { ExitPoll } from "./exit-poll";
 import { ReportPicker } from "./report-picker";
 
@@ -181,7 +181,18 @@ export function DashboardScreen({
                 Your Prescription
               </h1>
               <p className="max-w-[60ch] text-[length:var(--text-body)] text-muted-foreground">
-                {`${prescribedCount} needs read from your session, and what we would do about each one. Each call shows its evidence.`}
+                {/* A linked issue's report says how it follows from the other
+                    one here, in place of the general line (linked-intro.tsx). */}
+                {report.data.links?.length ? (
+                  <LinkedIntro
+                    readings={report.data.links}
+                    hasReport={(id) => reports.some((r) => r.issueId === id)}
+                    onOpenIssue={onOpenIssue}
+                    onShowIssue={onShowIssue}
+                  />
+                ) : (
+                  `${prescribedCount} needs read from your session, and what we would do about each one. Each call shows its evidence.`
+                )}
               </p>
             </header>
 
@@ -191,21 +202,6 @@ export function DashboardScreen({
                 nodes={graph.nodes}
                 preloaded={report.data}
                 onEvidence={onEvidence}
-                carriedOver={
-                  report.data.links?.length
-                    ? {
-                        title: carriedOverTitle(report.data.links),
-                        content: (
-                          <CarriedOver
-                            readings={report.data.links}
-                            hasReport={(id) => reports.some((r) => r.issueId === id)}
-                            onOpenIssue={onOpenIssue}
-                            onShowIssue={onShowIssue}
-                          />
-                        ),
-                      }
-                    : undefined
-                }
                 railTop={
                   tasks.length > 0 ? (
                     <NextStepsCard tasks={tasks} onOpenTasks={() => openTasks()} onOpenTask={openTasks} />
